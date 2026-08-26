@@ -9,6 +9,7 @@ import "src/lexer.gat";
 import "src/parser.gat";
 import "src/typecheck.gat";
 import "src/ir.gat";
+import "src/opt.gat";
 import "src/codegen.gat";
 import "src/pe.gat";
 import "src/main.gat";

@@ -1,0 +1,161 @@
+// ============================================================================
+// src/opt.gat - Intermediate Representation Optimizer Pass
+// ============================================================================
+
+fn opt_constant_fold(fn_obj: IRFunc) {
+    let size = (fn_obj.max_local + 64) * 8;
+    let is_const: raw i64 = alloc_mem(size);
+    let const_val: raw i64 = alloc_mem(size);
+
+    let i: i64 = 0;
+    while i < fn_obj.max_local + 64 {
+        is_const[i] = 0;
+        const_val[i] = 0;
+        i = i + 1;
+    }
+
+    let inst = fn_obj.inst_head;
+    while inst != nil {
+        if inst.op == IR_OP_LABEL || inst.op == IR_OP_CALL || inst.op == IR_OP_JUMP || inst.op == IR_OP_BRANCH {
+            // Reset known constants across control flow and call boundaries
+            let j: i64 = 0;
+            while j < fn_obj.max_local + 64 {
+                is_const[j] = 0;
+                const_val[j] = 0;
+                j = j + 1;
+            }
+        } else if inst.op == IR_OP_CONST_INT || inst.op == IR_OP_CONST_BOOL {
+            if inst.dest > 0 && inst.dest < fn_obj.max_local + 64 {
+                is_const[inst.dest] = 1;
+                const_val[inst.dest] = inst.int_val;
+            }
+        } else if inst.op == IR_OP_COPY {
+            if inst.src1 > 0 && inst.src1 < fn_obj.max_local + 64 {
+                if is_const[inst.src1] == 1 {
+                    let v = const_val[inst.src1];
+                    inst.op = IR_OP_CONST_INT;
+                    inst.int_val = v;
+                    inst.src1 = 0;
+                    if inst.dest > 0 && inst.dest < fn_obj.max_local + 64 {
+                        is_const[inst.dest] = 1;
+                        const_val[inst.dest] = v;
+                    }
+                }
+            }
+        } else if inst.op == IR_OP_BIN_OP {
+            let s1 = inst.src1;
+            let s2 = inst.src2;
+            if s1 > 0 && s1 < fn_obj.max_local + 64 && s2 > 0 && s2 < fn_obj.max_local + 64 {
+                if is_const[s1] == 1 && is_const[s2] == 1 {
+                    let a = const_val[s1];
+                    let b = const_val[s2];
+                    let op_s = inst.str_val;
+                    let folded: i64 = 0;
+                    let res: i64 = 0;
+
+                    if str_eq(op_s, "+") { res = a + b; folded = 1; }
+                    else if str_eq(op_s, "-") { res = a - b; folded = 1; }
+                    else if str_eq(op_s, "*") { res = a * b; folded = 1; }
+                    else if str_eq(op_s, "/") {
+                        if b != 0 { res = a / b; folded = 1; }
+                    } else if str_eq(op_s, "%") {
+                        if b != 0 { res = a % b; folded = 1; }
+                    } else if str_eq(op_s, "==") {
+                        if a == b { res = 1; } else { res = 0; }
+                        folded = 1;
+                    } else if str_eq(op_s, "!=") {
+                        if a != b { res = 1; } else { res = 0; }
+                        folded = 1;
+                    } else if str_eq(op_s, "<") {
+                        if a < b { res = 1; } else { res = 0; }
+                        folded = 1;
+                    } else if str_eq(op_s, "<=") {
+                        if a <= b { res = 1; } else { res = 0; }
+                        folded = 1;
+                    } else if str_eq(op_s, ">") {
+                        if a > b { res = 1; } else { res = 0; }
+                        folded = 1;
+                    } else if str_eq(op_s, ">=") {
+                        if a >= b { res = 1; } else { res = 0; }
+                        folded = 1;
+                    } else if str_eq(op_s, "&&") {
+                        if a != 0 && b != 0 { res = 1; } else { res = 0; }
+                        folded = 1;
+                    } else if str_eq(op_s, "||") {
+                        if a != 0 || b != 0 { res = 1; } else { res = 0; }
+                        folded = 1;
+                    }
+
+                    if folded == 1 {
+                        inst.op = IR_OP_CONST_INT;
+                        inst.int_val = res;
+                        inst.src1 = 0;
+                        inst.src2 = 0;
+                        inst.str_val = "";
+                        if inst.dest > 0 && inst.dest < fn_obj.max_local + 64 {
+                            is_const[inst.dest] = 1;
+                            const_val[inst.dest] = res;
+                        }
+                    }
+                }
+            }
+        } else if inst.op == IR_OP_UN_OP {
+            let s1 = inst.src1;
+            if s1 > 0 && s1 < fn_obj.max_local + 64 {
+                if is_const[s1] == 1 {
+                    let a = const_val[s1];
+                    let op_s = inst.str_val;
+                    let folded: i64 = 0;
+                    let res: i64 = 0;
+                    if str_eq(op_s, "-") {
+                        res = 0 - a;
+                        folded = 1;
+                    } else if str_eq(op_s, "!") {
+                        if a == 0 { res = 1; } else { res = 0; }
+                        folded = 1;
+                    }
+                    if folded == 1 {
+                        inst.op = IR_OP_CONST_INT;
+                        inst.int_val = res;
+                        inst.src1 = 0;
+                        inst.str_val = "";
+                        if inst.dest > 0 && inst.dest < fn_obj.max_local + 64 {
+                            is_const[inst.dest] = 1;
+                            const_val[inst.dest] = res;
+                        }
+                    }
+                }
+            }
+        }
+        inst = inst.next;
+    }
+}
+
+fn opt_dead_code_elim(fn_obj: IRFunc) {
+    let cur = fn_obj.inst_head;
+    let unreachable: i64 = 0;
+
+    while cur != nil {
+        if cur.op == IR_OP_LABEL {
+            unreachable = 0;
+        } else if unreachable == 1 {
+            cur.op = 0; // NOP
+        } else if cur.op == IR_OP_JUMP || cur.op == IR_OP_RETURN {
+            unreachable = 1;
+        }
+        cur = cur.next;
+    }
+}
+
+fn opt_optimize_function(fn_obj: IRFunc) {
+    opt_constant_fold(fn_obj);
+    opt_dead_code_elim(fn_obj);
+}
+
+fn opt_optimize_program(ir_ctx: IRContext) {
+    let fn_cur = ir_ctx.funcs_head;
+    while fn_cur != nil {
+        opt_optimize_function(fn_cur);
+        fn_cur = fn_cur.next;
+    }
+}

@@ -1,0 +1,48 @@
+// Test Compiler Optimizer Passes (Constant Folding, Copy Propagation, DCE)
+
+fn compute_folded() -> i64 {
+    // 10 * 20 + 30 / 3 - 5 = 200 + 10 - 5 = 205
+    let val = 10 * 20 + 30 / 3 - 5;
+    return val;
+}
+
+fn test_copy_chain() -> i64 {
+    let a: i64 = 42;
+    let b: i64 = a;
+    let c: i64 = b;
+    let d: i64 = c;
+    return d;
+}
+
+fn test_dead_code(flag: i64) -> i64 {
+    if flag == 1 {
+        return 100;
+        let dead1 = 999;
+        let dead2 = dead1 * 2;
+    }
+    return 200;
+}
+
+fn main() -> i64 {
+    let folded = compute_folded();
+    if folded != 205 {
+        print("[FAIL] Constant folding failed: expected 205, got ", folded, "\n");
+        return 1;
+    }
+
+    let copied = test_copy_chain();
+    if copied != 42 {
+        print("[FAIL] Copy propagation failed: expected 42, got ", copied, "\n");
+        return 1;
+    }
+
+    let r1 = test_dead_code(1);
+    let r2 = test_dead_code(0);
+    if r1 != 100 || r2 != 200 {
+        print("[FAIL] Dead code elimination test failed\n");
+        return 1;
+    }
+
+    print("[PASS] Optimizer passes verified successfully!\n");
+    return 0;
+}

@@ -45,6 +45,7 @@ fn main() -> i64 {
 
     let ir_ctx = ir_new(tc);
     ir_build_program(ir_ctx, prog);
+    opt_optimize_program(ir_ctx);
 
     let cg = cg_new();
     cg_emit_runtime(cg);

@@ -34,7 +34,8 @@ $testCases = @(
     @{ Name = "Standard Library (std/)"; File = "examples/test_std.gat"; Args = @(); Expect = "All standard library tests passed!"; ExpectedCode = 0 },
     @{ Name = "For Loops"; File = "examples/test_for.gat"; Args = @(); Expect = "For loop test passed!"; ExpectedCode = 0 },
     @{ Name = "String Interpolation"; File = "examples/test_interp.gat"; Args = @(); Expect = "String interpolation test passed!"; ExpectedCode = 0 },
-    @{ Name = "Generics & Parametric Types"; File = "examples/test_generics.gat"; Args = @(); Expect = "Generics test passed!"; ExpectedCode = 0 }
+    @{ Name = "Generics & Parametric Types"; File = "examples/test_generics.gat"; Args = @(); Expect = "Generics test passed!"; ExpectedCode = 0 },
+    @{ Name = "Optimizer Passes"; File = "examples/test_opt.gat"; Args = @(); Expect = "Optimizer passes verified successfully!"; ExpectedCode = 0 }
 )
 
 $passed = 0
