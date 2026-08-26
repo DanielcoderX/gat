@@ -1,0 +1,6 @@
+fn main() -> i64 {
+    print("Testing str_from_int...\n");
+    let s = str_from_int(12345);
+    print("Formatted: ", s, "\n");
+    return 0;
+}

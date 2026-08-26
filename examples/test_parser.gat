@@ -1,0 +1,10 @@
+fn main() -> i64 {
+    print("test parser start\n");
+    let src = "let x = 42;";
+    print("creating lexer...\n");
+    let l = lexer_new(src);
+    print("lexer created, creating parser...\n");
+    let p = parser_new(l);
+    print("parser created. cur: ", p.cur_tok.lit, ", peek: ", p.peek_tok.lit, "\n");
+    return 0;
+}

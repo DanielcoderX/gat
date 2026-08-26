@@ -1,0 +1,13 @@
+fn main() -> i64 {
+    let u: i64 = 0xC0000040;
+    print("u: ", u, "\n");
+    let b0 = u % 256;
+    let b1 = (u / 256) % 256;
+    let b2 = (u / 65536) % 256;
+    let b3 = (u / 16777216) % 256;
+    print("b0: ", b0, "\n");
+    print("b1: ", b1, "\n");
+    print("b2: ", b2, "\n");
+    print("b3: ", b3, "\n");
+    return 0;
+}

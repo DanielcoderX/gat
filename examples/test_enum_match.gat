@@ -1,0 +1,46 @@
+enum Option {
+    None,
+    Some(i64)
+}
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+fn inspect_option(opt: Option) {
+    match opt {
+        Option.Some(val) => {
+            print("Option has value: ", val, "\n");
+        }
+        Option.None => {
+            print("Option is None\n");
+        }
+    }
+}
+
+fn inspect_color(c: Color) {
+    match c {
+        Color.Red => { print("Color: Red\n"); }
+        Color.Green => { print("Color: Green\n"); }
+        Color.Blue => { print("Color: Blue\n"); }
+    }
+}
+
+fn main() -> i64 {
+    print("=== Enum & Match Test ===\n");
+    let o1 = Option.Some(42);
+    let o2 = Option.None;
+    inspect_option(o1);
+    inspect_option(o2);
+
+    let c = Color.Green;
+    inspect_color(c);
+
+    let arr = [10, 20, 30, 40];
+    print("Array[0]: ", arr[0], ", Array[2]: ", arr[2], "\n");
+
+    print("All tests passed!\n");
+    return 0;
+}

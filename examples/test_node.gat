@@ -1,0 +1,44 @@
+class Token {
+    kind: i64;
+    lit: string;
+}
+
+class Parser {
+    cur_tok: Token;
+}
+
+class Node {
+    kind: i64;
+    str_val: string;
+    child: Node;
+}
+
+fn parse_expr(p: Parser) -> Node {
+    let id = p.cur_tok.lit;
+    let left = new Node {
+        kind: 1,
+        str_val: id,
+        child: nil
+    };
+    let callee = left.str_val;
+    let call = new Node {
+        kind: 2,
+        str_val: callee,
+        child: left
+    };
+    return call;
+}
+
+fn main() -> i64 {
+    let tok = new Token {
+        kind: 1,
+        lit: "str_concat"
+    };
+    let p = new Parser {
+        cur_tok: tok
+    };
+    let n = parse_expr(p);
+    print("Call str_val: ", n.str_val, "\n");
+    print("Child str_val: ", n.child.str_val, "\n");
+    return 0;
+}

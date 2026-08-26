@@ -1,0 +1,46 @@
+fn test_strings() {
+    let s1 = "Hello";
+    let s2 = " World";
+    let s3 = str_concat(s1, s2);
+    print("Concat: ", s3, "\n");
+    print("Len: ", str_len(s3), "\n");
+    print("Eq test: ", str_eq(s1, "Hello"), "\n");
+    print("Char 0: ", str_char(s1, 0), "\n");
+    let sub = str_sub(s3, 0, 5);
+    print("Sub: ", sub, "\n");
+    let num_str = str_from_int(12345);
+    print("NumStr: ", num_str, "\n");
+}
+
+fn test_buffer_index() {
+    let buf = alloc_mem(16);
+    buf[0] = 'G';
+    buf[1] = 'A';
+    buf[2] = 'T';
+    buf[3] = 0;
+    print("Buf char 0: ", buf[0], ", char 1: ", buf[1], ", char 2: ", buf[2], "\n");
+    free_mem(buf);
+}
+
+fn test_file_io() {
+    let path = "tmp_gat_test.txt";
+    let content = "Hello from Gat File IO!\n";
+    write_file(path, content, str_len(content));
+    let read_back = read_file(path);
+    print("File read: ", read_back);
+}
+
+fn main() -> i64 {
+    print("=== Gat-Min Feature Test ===\n");
+    let arg0 = get_cmd_arg(0);
+    let arg1 = get_cmd_arg(1);
+    let arg2 = get_cmd_arg(2);
+    print("Arg 0: ", arg0, "\n");
+    print("Arg 1: ", arg1, "\n");
+    print("Arg 2: ", arg2, "\n");
+    test_strings();
+    test_buffer_index();
+    test_file_io();
+    print("Done!\n");
+    return 0;
+}

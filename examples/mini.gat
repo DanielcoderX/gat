@@ -1,0 +1,4 @@
+fn main() -> i64 {
+    print("Hello from Gat!\n");
+    return 0;
+}

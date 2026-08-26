@@ -1,0 +1,15 @@
+fn main() -> i64 {
+    let src = read_file("src/compiler.gat");
+    let l = lexer_new(src);
+    let p = parser_new(l);
+    print("Lexer and parser initialized on src/compiler.gat\n");
+    let count = 0;
+    while p.cur_tok.kind != TOK_EOF && count < 100 {
+        if p.cur_tok.line >= 240 && p.cur_tok.line <= 250 {
+            print("Line ", p.cur_tok.line, " Tok: ", p.cur_tok.kind, " (", p.cur_tok.lit, ")\n");
+        }
+        parser_next_token(p);
+        count = count + 1;
+    }
+    return 0;
+}

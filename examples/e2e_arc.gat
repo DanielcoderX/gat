@@ -1,0 +1,44 @@
+struct Point {
+    x: i64;
+    y: i64;
+}
+
+class Person {
+    id: i64;
+    age: i64;
+
+    deinit {
+        print("[deinit] Person freed: id = ", self.id, "\n");
+    }
+}
+
+fn inspect_person(p: Person, pt: raw Point) -> i64 {
+    print("[borrowed call] Inspecting person id = ", p.id, ", age = ", p.age, "\n");
+    print("[raw pointer access] Point x = ", pt.x, ", y = ", pt.y, "\n");
+    return p.age;
+}
+
+fn create_and_rebind() {
+    print("--- Scope 1: Allocating Person 101 ---\n");
+    let p1 = new Person { id: 101, age: 30 };
+    print("Person 101 allocated.\n");
+
+    print("--- Rebinding p1 to Person 202 ---\n");
+    p1 = new Person { id: 202, age: 40 };
+    print("Rebound p1. Exiting create_and_rebind scope...\n");
+}
+
+fn main() -> i64 {
+    print("=== Gat v0 Compiler E2E Test ===\n");
+
+    let pt = new Point { x: 10, y: 20 };
+    let p = new Person { id: 1, age: 25 };
+
+    let age = inspect_person(p, raw pt);
+    print("Returned age: ", age, "\n");
+
+    create_and_rebind();
+
+    print("Exiting main (Person 1 should be freed now)...\n");
+    return 0;
+}

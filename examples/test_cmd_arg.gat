@@ -1,0 +1,10 @@
+fn main() -> i64 {
+    print("Testing get_cmd_arg...\n");
+    let arg0 = get_cmd_arg(0);
+    print("Arg 0: ", arg0, "\n");
+    let arg1 = get_cmd_arg(1);
+    print("Arg 1: ", arg1, "\n");
+    let arg2 = get_cmd_arg(2);
+    print("Arg 2: ", arg2, "\n");
+    return 0;
+}
