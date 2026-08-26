@@ -295,52 +295,35 @@ fn array_demo() {
 
 ---
 
-## Self-Hosting Bootstrap & Verification
+## Self-Hosting Toolchain & Verification
 
-The `gat` compiler is written entirely in `gat` ([`src/compiler.gat`](file:///c:/Users/Daniel/Desktop/gat/src/compiler.gat)).
+The `gat` compiler is 100% self-hosted and written entirely in `gat` ([`src/compiler.gat`](file:///c:/Users/Daniel/Desktop/gat/src/compiler.gat)). It has **zero dependencies** and emits native Windows x86-64 PE executables directly without any external assembler, linker, or runtime.
 
-### 3-Stage Bootstrap Process
+### Self-Hosting Verification
 
-```
-+-------------------+
-|  gatc-v0 (Go)     | ---> compiles src/compiler.gat ---> bin/gatc-v1.exe
-+-------------------+
-                                                              |
-+-------------------+                                         v
-|  bin/gatc-v1.exe  | <---------------------------------------+
-+-------------------+ ---> compiles src/compiler.gat ---> bin/gatc-v2.exe
-                                                              |
-+-------------------+                                         v
-|  bin/gatc-v2.exe  | <---------------------------------------+
-+-------------------+ ---> compiles src/compiler.gat ---> bin/gatc-v3.exe
-                                                              |
-                                                              v
-                                                   fc.exe /b gatc-v2.exe gatc-v3.exe
-                                                   (100% BITWISE IDENTICAL)
-```
-
-### Reproducing the Full Bootstrap Pipeline
-
-Run the following commands in PowerShell:
+To verify that the self-hosted compiler reproduces itself bitwise identically:
 
 ```powershell
-# Stage 1: Go bootstrap compiler builds gatc-v1.exe
-go run ./cmd/gatc src/compiler.gat -o bin/gatc-v1.exe
+# 1. Compile compiler.gat with seed binary
+.\bin\gatc.exe src\compiler.gat -o bin\gatc-stage2.exe
 
-# Stage 2: gatc-v1 (native PE) builds gatc-v2.exe
-.\bin\gatc-v1.exe src/compiler.gat -o bin/gatc-v2.exe
+# 2. Compile compiler.gat with stage2 binary
+.\bin\gatc-stage2.exe src\compiler.gat -o bin\gatc-stage3.exe
 
-# Stage 3: gatc-v2 (native PE) builds gatc-v3.exe
-.\bin\gatc-v2.exe src/compiler.gat -o bin/gatc-v3.exe
-
-# Verify 100% bitwise binary reproduction
-fc.exe /b bin\gatc-v2.exe bin\gatc-v3.exe
+# 3. Verify 100% bitwise identity
+fc.exe /b bin\gatc-stage2.exe bin\gatc-stage3.exe
 ```
 
 Expected output:
 ```
-Comparing files BIN\gatc-v2.exe and BIN\GATC-V3.EXE
+Comparing files BIN\gatc-stage2.exe and BIN\GATC-STAGE3.EXE
 FC: no differences encountered
+```
+
+### Running the Test Suite
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test.ps1
 ```
 
 ---
@@ -349,22 +332,16 @@ FC: no differences encountered
 
 ```
 gat/
-├── bin/                 # Generated native executables (gatc-v1..v3, demos)
-├── cmd/
-│   └── gatc/            # Go v0 bootstrap compiler CLI
-├── examples/            # Example .gat source files
+├── bin/
+│   └── gatc.exe         # Pure native seed compiler (self-hosted)
+├── examples/            # Example .gat source programs & test suite
 │   ├── hello.gat        # Minimal hello world test
-│   └── e2e_arc.gat      # ARC lifecycle and destructor test
-├── pkg/                 # Go bootstrap compiler internals
-│   ├── ast/             # AST node structures
-│   ├── parser/          # Pratt recursive descent parser
-│   ├── lexer/           # Tokenizer
-│   ├── typecheck/       # Semantic analysis & type table
-│   ├── ir/              # 3-address linear IR
-│   ├── arc/             # Static reference counting insertion
-│   ├── codegen/         # x86-64 machine code generator
-│   └── pe/              # Direct PE32+ header and section builder
+│   ├── ret42.gat        # Exit code test
+│   ├── e2e_arc.gat      # ARC lifecycle and destructor test
+│   ├── test_enum_match.gat # Enums, match & array tests
+│   └── test_gatmin.gat  # Gat-Min feature test suite
 ├── src/
-│   └── compiler.gat     # Self-hosted compiler implementation in gat (3.2k lines)
+│   └── compiler.gat     # Self-hosted compiler implementation (3.6k lines)
+├── test.ps1             # Native test runner & bootstrap validator
 └── README.md            # Language and toolchain documentation
 ```
