@@ -1,0 +1,72 @@
+// ============================================================================
+// std/vec.gat - Dynamic Vector
+// ============================================================================
+
+class Vector {
+    data: raw i64;
+    size: i64;
+    cap: i64;
+
+    deinit {
+        if self.data != nil {
+            free_mem(self.data);
+            self.data = nil;
+        }
+    }
+}
+
+fn vec_new(initial_cap: i64) -> Vector {
+    let capacity = initial_cap;
+    if capacity < 4 { capacity = 4; }
+    let buf: raw i8 = alloc_mem(capacity * 8);
+    let ptr: raw i64 = buf;
+    return new Vector {
+        data: ptr,
+        size: 0,
+        cap: capacity
+    };
+}
+
+fn vec_push(v: Vector, item: i64) {
+    if v.size >= v.cap {
+        let new_cap = v.cap * 2;
+        let new_buf: raw i8 = alloc_mem(new_cap * 8);
+        let new_ptr: raw i64 = new_buf;
+        let i: i64 = 0;
+        while i < v.size {
+            new_ptr[i] = v.data[i];
+            i = i + 1;
+        }
+        free_mem(v.data);
+        v.data = new_ptr;
+        v.cap = new_cap;
+    }
+
+    v.data[v.size] = item;
+    v.size = v.size + 1;
+}
+
+fn vec_get(v: Vector, index: i64) -> i64 {
+    if index < 0 || index >= v.size { return 0; }
+    return v.data[index];
+}
+
+fn vec_set(v: Vector, index: i64, val: i64) {
+    if index < 0 || index >= v.size { return; }
+    v.data[index] = val;
+}
+
+fn vec_pop(v: Vector) -> i64 {
+    if v.size == 0 { return 0; }
+    let last = v.data[v.size - 1];
+    v.size = v.size - 1;
+    return last;
+}
+
+fn vec_len(v: Vector) -> i64 {
+    return v.size;
+}
+
+fn vec_clear(v: Vector) {
+    v.size = 0;
+}

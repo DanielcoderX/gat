@@ -1,0 +1,103 @@
+// ============================================================================
+// std/map.gat - Hash Map (String -> i64 / object)
+// ============================================================================
+
+class MapEntry {
+    key: string;
+    val: i64;
+    next: MapEntry;
+}
+
+class Map {
+    buckets: raw i64; // array of MapEntry pointers
+    bucket_count: i64;
+    size: i64;
+
+    deinit {
+        // Free bucket buffer
+        if self.buckets != nil {
+            free_mem(self.buckets);
+            self.buckets = nil;
+        }
+    }
+}
+
+// DJB2 String Hash Algorithm
+fn map_hash(key: string, bucket_count: i64) -> i64 {
+    let len = str_len(key);
+    let h: i64 = 5381;
+    let i: i64 = 0;
+    while i < len {
+        let c = str_char(key, i);
+        // h = ((h << 5) + h) + c = h * 33 + c
+        h = (h * 33 + c) % 2147483647;
+        i = i + 1;
+    }
+    let idx = h % bucket_count;
+    if idx < 0 { idx = 0 - idx; }
+    return idx;
+}
+
+fn map_new(bucket_count: i64) -> Map {
+    let count = bucket_count;
+    if count < 8 { count = 8; }
+    let buf: raw i8 = alloc_mem(count * 8);
+    let ptr: raw i64 = buf;
+    return new Map {
+        buckets: ptr,
+        bucket_count: count,
+        size: 0
+    };
+}
+
+fn map_put(m: Map, key: string, val: i64) {
+    let idx = map_hash(key, m.bucket_count);
+    let head_entry: MapEntry = m.buckets[idx];
+
+    // Check if key already exists
+    let cur = head_entry;
+    while cur != nil {
+        if str_eq(cur.key, key) {
+            cur.val = val;
+            return;
+        }
+        cur = cur.next;
+    }
+
+    // Insert new entry at head of bucket chain
+    let new_entry = new MapEntry {
+        key: key,
+        val: val,
+        next: head_entry
+    };
+    m.buckets[idx] = new_entry;
+    m.size = m.size + 1;
+}
+
+fn map_get(m: Map, key: string, default_val: i64) -> i64 {
+    let idx = map_hash(key, m.bucket_count);
+    let cur: MapEntry = m.buckets[idx];
+    while cur != nil {
+        if str_eq(cur.key, key) {
+            return cur.val;
+        }
+        cur = cur.next;
+    }
+    return default_val;
+}
+
+fn map_has(m: Map, key: string) -> bool {
+    let idx = map_hash(key, m.bucket_count);
+    let cur: MapEntry = m.buckets[idx];
+    while cur != nil {
+        if str_eq(cur.key, key) {
+            return true;
+        }
+        cur = cur.next;
+    }
+    return false;
+}
+
+fn map_len(m: Map) -> i64 {
+    return m.size;
+}

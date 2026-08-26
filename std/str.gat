@@ -1,0 +1,186 @@
+// ============================================================================
+// std/str.gat - String Utilities & StringBuilder
+// ============================================================================
+
+class StringBuilder {
+    data: raw i8;
+    size: i64;
+    cap: i64;
+
+    deinit {
+        if self.data != nil {
+            free_mem(self.data);
+            self.data = nil;
+        }
+    }
+}
+
+fn sb_new(initial_cap: i64) -> StringBuilder {
+    let capacity = initial_cap;
+    if capacity < 16 { capacity = 16; }
+    let buf: raw i8 = alloc_mem(capacity);
+    return new StringBuilder {
+        data: buf,
+        size: 0,
+        cap: capacity
+    };
+}
+
+fn sb_grow(sb: StringBuilder, needed: i64) {
+    if sb.size + needed + 1 > sb.cap {
+        let new_cap = sb.cap * 2;
+        if new_cap < sb.size + needed + 1 {
+            new_cap = sb.size + needed + 16;
+        }
+        let new_buf: raw i8 = alloc_mem(new_cap);
+        let i: i64 = 0;
+        while i < sb.size {
+            new_buf[i] = sb.data[i];
+            i = i + 1;
+        }
+        free_mem(sb.data);
+        sb.data = new_buf;
+        sb.cap = new_cap;
+    }
+}
+
+fn sb_append(sb: StringBuilder, s: string) {
+    if s == nil { return; }
+    let len = str_len(s);
+    if len == 0 { return; }
+    sb_grow(sb, len);
+    let i: i64 = 0;
+    while i < len {
+        sb.data[sb.size] = str_char(s, i);
+        sb.size = sb.size + 1;
+        i = i + 1;
+    }
+    sb.data[sb.size] = 0;
+}
+
+fn sb_append_char(sb: StringBuilder, ch: i64) {
+    sb_grow(sb, 1);
+    sb.data[sb.size] = ch;
+    sb.size = sb.size + 1;
+    sb.data[sb.size] = 0;
+}
+
+fn sb_append_int(sb: StringBuilder, n: i64) {
+    let s = str_from_int(n);
+    sb_append(sb, s);
+}
+
+fn sb_to_string(sb: StringBuilder) -> string {
+    if sb.size == 0 { return ""; }
+    let out_buf: raw i8 = alloc_mem(sb.size + 1);
+    let i: i64 = 0;
+    while i < sb.size {
+        out_buf[i] = sb.data[i];
+        i = i + 1;
+    }
+    out_buf[sb.size] = 0;
+    return out_buf;
+}
+
+fn sb_clear(sb: StringBuilder) {
+    sb.size = 0;
+    if sb.data != nil {
+        sb.data[0] = 0;
+    }
+}
+
+fn str_starts_with(s: string, prefix: string) -> bool {
+    let slen = str_len(s);
+    let plen = str_len(prefix);
+    if plen > slen { return false; }
+    let i: i64 = 0;
+    while i < plen {
+        if str_char(s, i) != str_char(prefix, i) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn str_ends_with(s: string, suffix: string) -> bool {
+    let slen = str_len(s);
+    let flen = str_len(suffix);
+    if flen > slen { return false; }
+    let offset = slen - flen;
+    let i: i64 = 0;
+    while i < flen {
+        if str_char(s, offset + i) != str_char(suffix, i) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn str_index_of(s: string, ch: i64) -> i64 {
+    let len = str_len(s);
+    let i: i64 = 0;
+    while i < len {
+        if str_char(s, i) == ch {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fn str_parse_int(s: string) -> i64 {
+    let len = str_len(s);
+    if len == 0 { return 0; }
+    let result: i64 = 0;
+    let sign: i64 = 1;
+    let i: i64 = 0;
+    if str_char(s, 0) == 45 { // '-'
+        sign = 0 - 1;
+        i = 1;
+    }
+    while i < len {
+        let ch = str_char(s, i);
+        if ch >= 48 && ch <= 57 { // '0'..'9'
+            result = result * 10 + (ch - 48);
+            i = i + 1;
+        } else {
+            i = len;
+        }
+    }
+    return result * sign;
+}
+
+fn is_ws(ch: i64) -> bool {
+    if ch == 32 { return true; }
+    if ch == 9 { return true; }
+    if ch == 10 { return true; }
+    if ch == 13 { return true; }
+    return false;
+}
+
+fn str_trim(s: string) -> string {
+    let len = str_len(s);
+    if len == 0 { return ""; }
+    let start: i64 = 0;
+    while start < len {
+        let ch = str_char(s, start);
+        if is_ws(ch) {
+            start = start + 1;
+        } else {
+            let end: i64 = len - 1;
+            while end >= start {
+                let ch2 = str_char(s, end);
+                if is_ws(ch2) {
+                    end = end - 1;
+                } else {
+                    let sub_len = end - start + 1;
+                    return str_sub(s, start, sub_len);
+                }
+            }
+            return "";
+        }
+    }
+    return "";
+}

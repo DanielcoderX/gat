@@ -2214,7 +2214,7 @@ fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
         let inst = ir_emit(ctx, IR_OP_LOAD_INDEX, dest, base);
         inst.src2 = idx;
         let base_type = ir_get_expr_type(ctx, expr.left);
-        if str_eq(base_type, "array") || str_eq(base_type, "[i64]") {
+        if str_eq(base_type, "array") || str_eq(base_type, "[i64]") || str_eq(base_type, "raw i64") {
             inst.int_val = 8;
         } else {
             inst.int_val = 1;
@@ -2317,7 +2317,7 @@ fn ir_build_stmt(ctx: IRContext, stmt: ASTNode) {
             let inst = ir_emit(ctx, IR_OP_STORE_INDEX, base, rhs);
             inst.src2 = idx;
             let base_type = ir_get_expr_type(ctx, stmt.left.left);
-            if str_eq(base_type, "array") || str_eq(base_type, "[i64]") {
+            if str_eq(base_type, "array") || str_eq(base_type, "[i64]") || str_eq(base_type, "raw i64") {
                 inst.int_val = 8;
             } else {
                 inst.int_val = 1;
@@ -3507,21 +3507,24 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
                 target_rva = rdata_rva + rdata_str_false_off;
             } else if str_eq(rel.sym, "str_empty_const") {
                 target_rva = rdata_rva + rdata_str_empty_off;
-            } else if str_len(rel.sym) > 4 && str_char(rel.sym, 0) == 115 && str_char(rel.sym, 1) == 116 && str_char(rel.sym, 2) == 114 && str_char(rel.sym, 3) == 95 {
-                let sc_cur = ir_ctx.strings_head;
-                while sc_cur != nil {
-                    if str_eq(sc_cur.label, rel.sym) {
-                        target_rva = rdata_rva + sc_cur.rdata_offset;
-                    }
-                    sc_cur = sc_cur.next;
-                }
             } else {
                 let sym_cur = cg.syms_head;
+                let found: i64 = 0;
                 while sym_cur != nil {
                     if str_eq(sym_cur.name, rel.sym) {
                         target_rva = text_rva + sym_cur.offset;
+                        found = 1;
                     }
                     sym_cur = sym_cur.next;
+                }
+                if found == 0 {
+                    let sc_cur = ir_ctx.strings_head;
+                    while sc_cur != nil {
+                        if str_eq(sc_cur.label, rel.sym) {
+                            target_rva = rdata_rva + sc_cur.rdata_offset;
+                        }
+                        sc_cur = sc_cur.next;
+                    }
                 }
             }
 

@@ -1,0 +1,95 @@
+// ============================================================================
+// examples/test_std.gat - Comprehensive Standard Library Test Suite
+// ============================================================================
+
+import "std/str.gat";
+import "std/io.gat";
+import "std/vec.gat";
+import "std/map.gat";
+
+fn test_string_builder() {
+    print("--- 1. Testing StringBuilder & String Utils ---\n");
+    let sb = sb_new(8);
+    sb_append(sb, "Hello");
+    sb_append(sb, " ");
+    sb_append(sb, "Gat");
+    sb_append_char(sb, 33); // '!'
+    sb_append(sb, " Count=");
+    sb_append_int(sb, 42);
+
+    let res = sb_to_string(sb);
+    print("Result: ", res, "\n");
+
+    let trimmed = str_trim("   lots of whitespace   ");
+    print("Trimmed: [", trimmed, "]\n");
+
+    let num = str_parse_int("-9876");
+    print("Parsed int: ", num, "\n");
+
+    let sw = str_starts_with("compiler.gat", "comp");
+    let ew = str_ends_with("compiler.gat", ".gat");
+    print("Starts 'comp': ", sw, ", Ends '.gat': ", ew, "\n");
+}
+
+fn test_vector() {
+    print("\n--- 2. Testing Vector ---\n");
+    let v = vec_new(4);
+    vec_push(v, 100);
+    vec_push(v, 200);
+    vec_push(v, 300);
+    vec_push(v, 400);
+    vec_push(v, 500); // triggers capacity expansion
+
+    print("Vec len: ", vec_len(v), "\n");
+    print("Vec[0]: ", vec_get(v, 0), ", Vec[2]: ", vec_get(v, 2), ", Vec[4]: ", vec_get(v, 4), "\n");
+
+    vec_set(v, 2, 999);
+    print("Vec[2] after set: ", vec_get(v, 2), "\n");
+
+    let popped = vec_pop(v);
+    print("Popped item: ", popped, ", New len: ", vec_len(v), "\n");
+}
+
+fn test_map() {
+    print("\n--- 3. Testing Map ---\n");
+    let m = map_new(16);
+    map_put(m, "apple", 10);
+    map_put(m, "banana", 25);
+    map_put(m, "cherry", 50);
+
+    print("Map len: ", map_len(m), "\n");
+    print("apple = ", map_get(m, "apple", 0), "\n");
+    print("banana = ", map_get(m, "banana", 0), "\n");
+    print("cherry = ", map_get(m, "cherry", 0), "\n");
+    print("has apple: ", map_has(m, "apple"), ", has orange: ", map_has(m, "orange"), "\n");
+
+    // Overwrite existing key
+    map_put(m, "apple", 99);
+    print("apple after overwrite: ", map_get(m, "apple", 0), "\n");
+}
+
+fn test_io() {
+    print("\n--- 4. Testing IO & Paths ---\n");
+    let full_path = io_path_combine("std/subfolder", "file.gat");
+    let ext = io_path_ext(full_path);
+    let fname = io_path_filename(full_path);
+    print("Combined path: ", full_path, "\n");
+    print("Filename: ", fname, ", Ext: ", ext, "\n");
+
+    let test_file = "tmp_std_io_test.txt";
+    let ok = io_write_text(test_file, "Standard Library IO Test Content\n");
+    if ok {
+        let content = io_read_text(test_file);
+        print("Read back content: ", content);
+    }
+}
+
+fn main() -> i64 {
+    print("=== Gat Standard Library Full Test ===\n");
+    test_string_builder();
+    test_vector();
+    test_map();
+    test_io();
+    print("\nAll standard library tests passed!\n");
+    return 0;
+}

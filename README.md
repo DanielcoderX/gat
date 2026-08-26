@@ -327,6 +327,43 @@ fn main() -> i64 {
 
 ---
 
+### 13. Standard Library (`std/`)
+
+Gat comes with a modular standard library written in pure Gat:
+
+- **`std/str.gat`**: `StringBuilder`, `str_trim`, `str_starts_with`, `str_ends_with`, `str_index_of`, `str_parse_int`
+- **`std/io.gat`**: `io_read_text`, `io_write_text`, `io_append_text`, `io_path_combine`, `io_path_ext`, `io_path_filename`
+- **`std/vec.gat`**: `Vector` dynamic array (`vec_new`, `vec_push`, `vec_pop`, `vec_get`, `vec_set`, `vec_len`, `vec_clear`)
+- **`std/map.gat`**: `Map` hash dictionary (`map_new`, `map_put`, `map_get`, `map_has`, `map_len`, DJB2 hashing)
+
+```gat
+import "std/str.gat";
+import "std/vec.gat";
+import "std/map.gat";
+
+fn main() -> i64 {
+    // StringBuilder
+    let sb = sb_new(16);
+    sb_append(sb, "Gat ");
+    sb_append_int(sb, 2026);
+    print("SB: ", sb_to_string(sb), "\n");
+
+    // Dynamic Vector
+    let v = vec_new(4);
+    vec_push(v, 100);
+    vec_push(v, 200);
+    print("v[0] = ", vec_get(v, 0), ", len = ", vec_len(v), "\n");
+
+    // Hash Map
+    let m = map_new(16);
+    map_put(m, "compiler", 1);
+    print("has compiler: ", map_has(m, "compiler"), "\n");
+    return 0;
+}
+```
+
+---
+
 ## Self-Hosting Toolchain & Verification
 
 The `gat` compiler is 100% self-hosted and written entirely in `gat` ([`src/compiler.gat`](file:///c:/Users/Daniel/Desktop/gat/src/compiler.gat)). It has **zero dependencies** and emits native Windows x86-64 PE executables directly without any external assembler, linker, or runtime.
@@ -366,14 +403,20 @@ powershell -ExecutionPolicy Bypass -File .\test.ps1
 gat/
 ├── bin/
 │   └── gatc.exe         # Pure native seed compiler (self-hosted)
+├── std/                 # Standard Library in pure Gat
+│   ├── str.gat          # StringBuilder & string helpers
+│   ├── io.gat           # File I/O & path helpers
+│   ├── vec.gat          # Dynamic vector/array
+│   └── map.gat          # DJB2 hash map
 ├── examples/            # Example .gat source programs & test suite
 │   ├── hello.gat        # Minimal hello world test
 │   ├── ret42.gat        # Exit code test
 │   ├── e2e_arc.gat      # ARC lifecycle and destructor test
 │   ├── test_enum_match.gat # Enums, match & array tests
+│   ├── test_std.gat     # Standard library test suite
 │   └── test_gatmin.gat  # Gat-Min feature test suite
 ├── src/
-│   └── compiler.gat     # Self-hosted compiler implementation (3.6k lines)
+│   └── compiler.gat     # Self-hosted compiler implementation (3.7k lines)
 ├── test.ps1             # Native test runner & bootstrap validator
 └── README.md            # Language and toolchain documentation
 ```
