@@ -1,0 +1,123 @@
+// ============================================================================
+// src/tokens.gat - Compiler Token & AST Constants
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. Constants
+// ----------------------------------------------------------------------------
+
+// Token Kinds
+let TOK_EOF: i64 = 0;
+let TOK_IDENT: i64 = 1;
+let TOK_INT: i64 = 2;
+let TOK_STRING: i64 = 3;
+let TOK_BOOL: i64 = 4;
+let TOK_FN: i64 = 10;
+let TOK_LET: i64 = 11;
+let TOK_STRUCT: i64 = 12;
+let TOK_CLASS: i64 = 13;
+let TOK_DEINIT: i64 = 14;
+let TOK_RETURN: i64 = 15;
+let TOK_IF: i64 = 16;
+let TOK_ELSE: i64 = 17;
+let TOK_WHILE: i64 = 18;
+let TOK_NEW: i64 = 19;
+let TOK_RAW: i64 = 20;
+let TOK_PRINT: i64 = 21;
+let TOK_TRUE: i64 = 22;
+let TOK_FALSE: i64 = 23;
+let TOK_IMPORT: i64 = 24;
+let TOK_PLUS: i64 = 30;
+let TOK_MINUS: i64 = 31;
+let TOK_STAR: i64 = 32;
+let TOK_SLASH: i64 = 33;
+let TOK_PERCENT: i64 = 34;
+let TOK_EQ: i64 = 35;
+let TOK_NOT_EQ: i64 = 36;
+let TOK_LT: i64 = 37;
+let TOK_LTE: i64 = 38;
+let TOK_GT: i64 = 39;
+let TOK_GTE: i64 = 40;
+let TOK_AND: i64 = 41;
+let TOK_OR: i64 = 42;
+let TOK_BANG: i64 = 43;
+let TOK_ASSIGN: i64 = 44;
+let TOK_DOT: i64 = 45;
+let TOK_COMMA: i64 = 46;
+let TOK_COLON: i64 = 47;
+let TOK_SEMICOLON: i64 = 48;
+let TOK_LPAREN: i64 = 49;
+let TOK_RPAREN: i64 = 50;
+let TOK_LBRACE: i64 = 51;
+let TOK_RBRACE: i64 = 52;
+let TOK_LBRACKET: i64 = 53;
+let TOK_RBRACKET: i64 = 54;
+let TOK_ARROW: i64 = 55;
+let TOK_ENUM: i64 = 56;
+let TOK_MATCH: i64 = 57;
+let TOK_FAT_ARROW: i64 = 58;
+
+// AST Node Kinds
+let AST_PROGRAM: i64 = 1;
+let AST_FN_DECL: i64 = 2;
+let AST_PARAM: i64 = 3;
+let AST_BLOCK: i64 = 4;
+let AST_LET_STMT: i64 = 5;
+let AST_ASSIGN_STMT: i64 = 6;
+let AST_RETURN_STMT: i64 = 7;
+let AST_IF_STMT: i64 = 8;
+let AST_WHILE_STMT: i64 = 9;
+let AST_EXPR_STMT: i64 = 10;
+let AST_STRUCT_DECL: i64 = 11;
+let AST_CLASS_DECL: i64 = 12;
+let AST_FIELD_DECL: i64 = 13;
+let AST_ENUM_DECL: i64 = 14;
+let AST_ENUM_VARIANT: i64 = 15;
+let AST_MATCH_STMT: i64 = 16;
+let AST_MATCH_ARM: i64 = 17;
+let AST_IMPORT_DECL: i64 = 18;
+let AST_INT_LIT: i64 = 20;
+let AST_STR_LIT: i64 = 21;
+let AST_BOOL_LIT: i64 = 22;
+let AST_IDENT: i64 = 23;
+let AST_BIN_OP: i64 = 24;
+let AST_UN_OP: i64 = 25;
+let AST_CALL: i64 = 26;
+let AST_PRINT: i64 = 27;
+let AST_MEMBER: i64 = 28;
+let AST_INDEX: i64 = 29;
+let AST_NEW: i64 = 30;
+let AST_FIELD_INIT: i64 = 31;
+let AST_ARRAY_LIT: i64 = 32;
+
+// IR Opcode Kinds
+let IR_OP_ALLOC_HEAP: i64 = 1;
+let IR_OP_ALLOC_STACK: i64 = 2;
+let IR_OP_LOAD: i64 = 3;
+let IR_OP_STORE: i64 = 4;
+let IR_OP_LOAD_INDEX: i64 = 5;
+let IR_OP_STORE_INDEX: i64 = 6;
+let IR_OP_COPY: i64 = 7;
+let IR_OP_CONST_INT: i64 = 8;
+let IR_OP_CONST_STR: i64 = 9;
+let IR_OP_CONST_BOOL: i64 = 10;
+let IR_OP_BIN_OP: i64 = 11;
+let IR_OP_UN_OP: i64 = 12;
+let IR_OP_CALL: i64 = 13;
+let IR_OP_PRINT: i64 = 14;
+let IR_OP_RETAIN: i64 = 15;
+let IR_OP_RELEASE: i64 = 16;
+let IR_OP_RETURN: i64 = 17;
+let IR_OP_BRANCH: i64 = 18;
+let IR_OP_JUMP: i64 = 19;
+let IR_OP_LABEL: i64 = 20;
+
+// Type Kinds
+let TYPE_VOID: i64 = 0;
+let TYPE_INT: i64 = 1;
+let TYPE_BOOL: i64 = 2;
+let TYPE_STRING: i64 = 3;
+let TYPE_STRUCT: i64 = 4;
+let TYPE_CLASS: i64 = 5;
+let TYPE_RAW: i64 = 6;
+

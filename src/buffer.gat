@@ -1,0 +1,128 @@
+// ============================================================================
+// src/buffer.gat - Byte Buffer Helpers
+// ============================================================================
+
+// 3. Byte Buffer Helpers
+// ----------------------------------------------------------------------------
+
+fn bb_new(initial_cap: i64) -> ByteBuffer {
+    let buf = new ByteBuffer {
+        data: alloc_mem(initial_cap),
+        size: 0,
+        cap: initial_cap
+    };
+    return buf;
+}
+
+fn bb_grow(bb: ByteBuffer, needed: i64) {
+    if bb.size + needed <= bb.cap {
+        return;
+    }
+    let new_cap = bb.cap * 2;
+    if new_cap < bb.size + needed {
+        new_cap = bb.size + needed + 1024;
+    }
+    let new_data = alloc_mem(new_cap);
+    let i = 0;
+    while i < bb.size {
+        new_data[i] = bb.data[i];
+        i = i + 1;
+    }
+    free_mem(bb.data);
+    bb.data = new_data;
+    bb.cap = new_cap;
+}
+
+fn bb_write_u8(bb: ByteBuffer, b: i64) {
+    let u = b;
+    if u < 0 {
+        u = u + 256;
+    }
+    bb_grow(bb, 1);
+    bb.data[bb.size] = u;
+    bb.size = bb.size + 1;
+}
+
+fn bb_write_u16(bb: ByteBuffer, w: i64) {
+    let u = w;
+    if u < 0 {
+        u = u + 65536;
+    }
+    bb_grow(bb, 2);
+    bb.data[bb.size] = u;
+    bb.data[bb.size + 1] = u / 256;
+    bb.size = bb.size + 2;
+}
+
+fn bb_write_u32(bb: ByteBuffer, dw: i64) {
+    let u = dw;
+    if u < 0 {
+        u = u + 65536 * 65536;
+    }
+    bb_grow(bb, 4);
+    bb.data[bb.size] = u;
+    bb.data[bb.size + 1] = u / 256;
+    bb.data[bb.size + 2] = u / 65536;
+    bb.data[bb.size + 3] = (u / 65536) / 256;
+    bb.size = bb.size + 4;
+}
+
+fn bb_write_u64(bb: ByteBuffer, qw: i64) {
+    let lo = qw;
+    if lo < 0 {
+        lo = lo + 65536 * 65536;
+    }
+    bb_write_u32(bb, lo);
+    let hi = qw / 65536 / 65536;
+    if hi < 0 {
+        hi = hi + 65536 * 65536;
+    }
+    bb_write_u32(bb, hi);
+}
+
+fn bb_write_bytes(bb: ByteBuffer, src: raw i8, count: i64) {
+    bb_grow(bb, count);
+    let i = 0;
+    while i < count {
+        bb.data[bb.size + i] = src[i];
+        i = i + 1;
+    }
+    bb.size = bb.size + count;
+}
+
+fn bb_write_str(bb: ByteBuffer, s: string) {
+    let len = str_len(s);
+    bb_grow(bb, len);
+    let i = 0;
+    while i < len {
+        bb.data[bb.size + i] = str_char(s, i);
+        i = i + 1;
+    }
+    bb.size = bb.size + len;
+}
+
+fn bb_write_zeros(bb: ByteBuffer, count: i64) {
+    bb_grow(bb, count);
+    let i = 0;
+    while i < count {
+        bb.data[bb.size + i] = 0;
+        i = i + 1;
+    }
+    bb.size = bb.size + count;
+}
+
+fn bb_align_up(bb: ByteBuffer, align: i64) {
+    let rem = bb.size % align;
+    if rem != 0 {
+        bb_write_zeros(bb, align - rem);
+    }
+}
+
+fn align_val(val: i64, align: i64) -> i64 {
+    let rem = val % align;
+    if rem == 0 {
+        return val;
+    }
+    return val + (align - rem);
+}
+

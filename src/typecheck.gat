@@ -1,0 +1,236 @@
+// ============================================================================
+// src/typecheck.gat - Typechecker & Layout Engine
+// ============================================================================
+
+
+// ----------------------------------------------------------------------------
+// 6. Typechecker & Layout Engine
+// ----------------------------------------------------------------------------
+
+class TypeChecker {
+    types_head: TypeInfo;
+    types_tail: TypeInfo;
+    type_id_seq: i64;
+    funcs_head: Symbol;
+    funcs_tail: Symbol;
+}
+
+fn tc_new() -> TypeChecker {
+    let tc = new TypeChecker {
+        types_head: nil,
+        types_tail: nil,
+        type_id_seq: 1,
+        funcs_head: nil,
+        funcs_tail: nil
+    };
+
+    tc_add_primitive(tc, "void", TYPE_VOID, 0);
+    tc_add_primitive(tc, "i8", TYPE_INT, 1);
+    tc_add_primitive(tc, "i64", TYPE_INT, 8);
+    tc_add_primitive(tc, "bool", TYPE_BOOL, 8);
+    tc_add_primitive(tc, "string", TYPE_STRING, 8);
+
+    return tc;
+}
+
+fn tc_add_primitive(tc: TypeChecker, name: string, kind: i64, size: i64) {
+    let ti = new TypeInfo {
+        name: name,
+        kind: kind,
+        size: size,
+        is_ref: 0,
+        type_id: 0,
+        fields: nil,
+        deinit_fn: "",
+        next: nil
+    };
+    if tc.types_head == nil {
+        tc.types_head = ti;
+        tc.types_tail = ti;
+    } else {
+        tc.types_tail.next = ti;
+        tc.types_tail = ti;
+    }
+}
+
+fn tc_find_type(tc: TypeChecker, name: string) -> TypeInfo {
+    let t_name = name;
+    if str_len(t_name) > 4 {
+        if str_eq(str_sub(t_name, 0, 4), "raw ") {
+            t_name = str_sub(t_name, 4, str_len(t_name) - 4);
+        }
+    }
+    let cur = tc.types_head;
+    while cur != nil {
+        if str_eq(cur.name, t_name) {
+            return cur;
+        }
+        cur = cur.next;
+    }
+    return nil;
+}
+
+fn tc_find_func(tc: TypeChecker, name: string) -> Symbol {
+    let cur = tc.funcs_head;
+    while cur != nil {
+        if str_eq(cur.name, name) {
+            return cur;
+        }
+        cur = cur.next;
+    }
+    return nil;
+}
+
+fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
+    if decl == nil { return; }
+    if decl.kind == AST_FN_DECL {
+        let ret_type = decl.type_name;
+        if str_len(ret_type) == 0 {
+            ret_type = "i64";
+        }
+        let fn_sym = new Symbol {
+            name: decl.str_val,
+            type_kind: TYPE_INT,
+            type_name: ret_type,
+            is_ref: 0,
+            size: 8,
+            offset: 0,
+            next: nil
+        };
+        if tc.funcs_head == nil {
+            tc.funcs_head = fn_sym;
+            tc.funcs_tail = fn_sym;
+        } else {
+            tc.funcs_tail.next = fn_sym;
+            tc.funcs_tail = fn_sym;
+        }
+        return;
+    }
+
+    if decl.kind == AST_STRUCT_DECL || decl.kind == AST_CLASS_DECL {
+        let is_ref: i64 = 0;
+        let k = TYPE_STRUCT;
+        if decl.kind == AST_CLASS_DECL {
+            is_ref = 1;
+            k = TYPE_CLASS;
+        }
+        let ti = new TypeInfo {
+            name: decl.str_val,
+            kind: k,
+            size: 0,
+            is_ref: is_ref,
+            type_id: tc.type_id_seq,
+            fields: nil,
+            deinit_fn: "",
+            next: nil
+        };
+        tc.type_id_seq = tc.type_id_seq + 1;
+
+        // Layout fields
+        let offset: i64 = 0;
+        let f = decl.left;
+        let head_sym: Symbol = nil;
+        let tail_sym: Symbol = nil;
+        while f != nil {
+            let f_sym = new Symbol {
+                name: f.str_val,
+                type_name: f.type_name,
+                type_kind: TYPE_INT,
+                is_ref: 0,
+                size: 8,
+                offset: offset,
+                next: nil
+            };
+            offset = offset + 8;
+            if head_sym == nil {
+                head_sym = f_sym;
+                tail_sym = f_sym;
+            } else {
+                tail_sym.next = f_sym;
+                tail_sym = f_sym;
+            }
+            f = f.next;
+        }
+        ti.fields = head_sym;
+        ti.size = offset;
+
+        if tc.types_head == nil {
+            tc.types_head = ti;
+            tc.types_tail = ti;
+        } else {
+            tc.types_tail.next = ti;
+            tc.types_tail = ti;
+        }
+        return;
+    }
+
+    if decl.kind == AST_ENUM_DECL {
+        let ti = new TypeInfo {
+            name: decl.str_val,
+            kind: TYPE_STRUCT,
+            size: 64,
+            is_ref: 0,
+            type_id: tc.type_id_seq,
+            fields: nil,
+            deinit_fn: "",
+            next: nil
+        };
+        tc.type_id_seq = tc.type_id_seq + 1;
+        let v = decl.child;
+        let head_sym: Symbol = nil;
+        let tail_sym: Symbol = nil;
+        while v != nil {
+            let v_sym = new Symbol {
+                name: v.str_val,
+                type_name: decl.str_val,
+                type_kind: TYPE_INT,
+                is_ref: 0,
+                size: 8,
+                offset: v.int_val,
+                next: nil
+            };
+            if head_sym == nil {
+                head_sym = v_sym;
+                tail_sym = v_sym;
+            } else {
+                tail_sym.next = v_sym;
+                tail_sym = v_sym;
+            }
+            v = v.next;
+        }
+        ti.fields = head_sym;
+        if tc.types_head == nil {
+            tc.types_head = ti;
+            tc.types_tail = ti;
+        } else {
+            tc.types_tail.next = ti;
+            tc.types_tail = ti;
+        }
+        return;
+    }
+}
+
+fn tc_get_field_offset(ti: TypeInfo, field_name: string) -> i64 {
+    if ti == nil { return 0; }
+    let f = ti.fields;
+    while f != nil {
+        if str_eq(f.name, field_name) {
+            return f.offset;
+        }
+        f = f.next;
+    }
+    return 0;
+}
+
+fn tc_get_field_type(ti: TypeInfo, field_name: string) -> string {
+    if ti == nil { return ""; }
+    let f = ti.fields;
+    while f != nil {
+        if str_eq(f.name, field_name) {
+            return f.type_name;
+        }
+        f = f.next;
+    }
+    return "";
+}
+

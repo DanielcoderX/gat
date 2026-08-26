@@ -1,0 +1,117 @@
+// ============================================================================
+// src/ast.gat - Compiler Data Structures & AST Types
+// ============================================================================
+
+// 2. Data Structures
+// ----------------------------------------------------------------------------
+
+class Token {
+    kind: i64;
+    lit: string;
+    val_i64: i64;
+    line: i64;
+    col: i64;
+    next: Token;
+}
+
+class Lexer {
+    input: string;
+    len: i64;
+    pos: i64;
+    read_pos: i64;
+    ch: i64;
+    line: i64;
+    col: i64;
+}
+
+class ASTNode {
+    kind: i64;
+    str_val: string;
+    int_val: i64;
+    type_name: string;
+    type_kind: i64;
+    left: ASTNode;
+    right: ASTNode;
+    child: ASTNode;
+    next: ASTNode;
+}
+
+class Parser {
+    lex: Lexer;
+    cur_tok: Token;
+    peek_tok: Token;
+}
+
+class Symbol {
+    name: string;
+    type_kind: i64;
+    type_name: string;
+    is_ref: i64;
+    size: i64;
+    offset: i64;
+    next: Symbol;
+}
+
+class TypeInfo {
+    name: string;
+    kind: i64;
+    size: i64;
+    is_ref: i64;
+    type_id: i64;
+    fields: Symbol;
+    deinit_fn: string;
+    next: TypeInfo;
+}
+
+class IRInst {
+    op: i64;
+    dest: i64;
+    src1: i64;
+    src2: i64;
+    offset: i64;
+    int_val: i64;
+    extra: i64;
+    str_val: string;
+    label: string;
+    type_kind: i64;
+    type_is_ref: i64;
+    arg_count: i64;
+    next: IRInst;
+}
+
+class IRFunc {
+    name: string;
+    inst_head: IRInst;
+    inst_tail: IRInst;
+    next: IRFunc;
+    max_local: i64;
+    param_count: i64;
+}
+
+class StringConst {
+    label: string;
+    val: string;
+    rdata_offset: i64;
+    next: StringConst;
+}
+
+class ByteBuffer {
+    data: raw i8;
+    size: i64;
+    cap: i64;
+}
+
+class Reloc {
+    offset: i64;
+    sym: string;
+    kind: i64; // 1 = RIP relative, 2 = IAT relative
+    next: Reloc;
+}
+
+class SymOffset {
+    name: string;
+    offset: i64;
+    next: SymOffset;
+}
+
+// ----------------------------------------------------------------------------

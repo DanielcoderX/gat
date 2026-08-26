@@ -1,0 +1,65 @@
+// ============================================================================
+// src/main.gat - Main Driver
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 10. Main Driver
+// ----------------------------------------------------------------------------
+
+fn main() -> i64 {
+    let src_path = get_cmd_arg(1);
+    if str_len(src_path) == 0 {
+        print("Usage: gatc <source.gat> -o <output.exe>\n");
+        return 1;
+    }
+
+    let out_path = "output.exe";
+    let arg2 = get_cmd_arg(2);
+    let arg3 = get_cmd_arg(3);
+    if str_eq(arg2, "-o") && str_len(arg3) > 0 {
+        out_path = arg3;
+    }
+
+    let src = read_file(src_path);
+    if str_len(src) == 0 {
+        print("[Error] Failed to read source file: ", src_path, "\n");
+        return 1;
+    }
+
+    let l = lexer_new(src);
+    let p = parser_new(l);
+    let raw_prog = parse_program(p);
+
+    let loaded_files = new FileList {
+        path: src_path,
+        next: nil
+    };
+    let prog = resolve_imports(raw_prog, loaded_files);
+
+    let tc = tc_new();
+    let d = prog.child;
+    while d != nil {
+        tc_register_decl(tc, d);
+        d = d.next;
+    }
+
+    let ir_ctx = ir_new(tc);
+    ir_build_program(ir_ctx, prog);
+
+    let cg = cg_new();
+    cg_emit_runtime(cg);
+    let fn_cur = ir_ctx.funcs_head;
+    while fn_cur != nil {
+        cg_emit_function(cg, fn_cur);
+        fn_cur = fn_cur.next;
+    }
+
+    let success = pe_build_executable(ir_ctx, cg, out_path);
+    if success {
+        return 0;
+    } else {
+        print("[Error] Failed to write PE binary: ", out_path, "\n");
+        return 1;
+    }
+}
+

@@ -1,0 +1,790 @@
+// ============================================================================
+// src/ir.gat - IR Builder & Constants Engine
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 7. IR Builder & ARC Pass
+// ----------------------------------------------------------------------------
+
+class IRContext {
+    tc: TypeChecker;
+    funcs_head: IRFunc;
+    funcs_tail: IRFunc;
+    cur_fn: IRFunc;
+    val_seq: i64;
+    label_seq: i64;
+    strings_head: StringConst;
+    strings_tail: StringConst;
+    string_count: i64;
+    locals: Symbol;
+}
+
+fn ir_new(tc: TypeChecker) -> IRContext {
+    return new IRContext {
+        tc: tc,
+        funcs_head: nil,
+        funcs_tail: nil,
+        cur_fn: nil,
+        val_seq: 1,
+        label_seq: 1,
+        strings_head: nil,
+        strings_tail: nil,
+        string_count: 0,
+        locals: nil
+    };
+}
+
+fn ir_add_string(ctx: IRContext, str: string) -> string {
+    let cur = ctx.strings_head;
+    while cur != nil {
+        if str_eq(cur.val, str) {
+            return cur.label;
+        }
+        cur = cur.next;
+    }
+    let lbl = str_concat("str_", str_from_int(ctx.string_count));
+    ctx.string_count = ctx.string_count + 1;
+    let sc = new StringConst {
+        label: lbl,
+        val: str,
+        rdata_offset: 0,
+        next: nil
+    };
+    if ctx.strings_head == nil {
+        ctx.strings_head = sc;
+        ctx.strings_tail = sc;
+    } else {
+        ctx.strings_tail.next = sc;
+        ctx.strings_tail = sc;
+    }
+    return lbl;
+}
+
+fn ir_new_label(ctx: IRContext, prefix: string) -> string {
+    let lbl = str_concat(prefix, str_from_int(ctx.label_seq));
+    ctx.label_seq = ctx.label_seq + 1;
+    return lbl;
+}
+
+fn ir_alloc_val(ctx: IRContext) -> i64 {
+    let id = ctx.val_seq;
+    ctx.val_seq = ctx.val_seq + 1;
+    if id > ctx.cur_fn.max_local {
+        ctx.cur_fn.max_local = id;
+    }
+    return id;
+}
+
+fn ir_emit(ctx: IRContext, op: i64, dest: i64, src1: i64) -> IRInst {
+    let inst = new IRInst {
+        op: op,
+        dest: dest,
+        src1: src1,
+        src2: 0,
+        offset: 0,
+        int_val: 0,
+        extra: 0,
+        str_val: "",
+        label: "",
+        type_kind: TYPE_INT,
+        type_is_ref: 0,
+        arg_count: 0,
+        next: nil
+    };
+    if ctx.cur_fn.inst_head == nil {
+        ctx.cur_fn.inst_head = inst;
+        ctx.cur_fn.inst_tail = inst;
+    } else {
+        ctx.cur_fn.inst_tail.next = inst;
+        ctx.cur_fn.inst_tail = inst;
+    }
+    return inst;
+}
+
+fn ir_set_local(ctx: IRContext, name: string, val_id: i64, is_ref: i64, type_name: string) {
+    let s = new Symbol {
+        name: name,
+        type_kind: TYPE_INT,
+        type_name: type_name,
+        is_ref: is_ref,
+        size: 8,
+        offset: val_id,
+        next: ctx.locals
+    };
+    ctx.locals = s;
+}
+
+fn ir_get_local(ctx: IRContext, name: string) -> Symbol {
+    let cur = ctx.locals;
+    while cur != nil {
+        if str_eq(cur.name, name) {
+            return cur;
+        }
+        cur = cur.next;
+    }
+    return nil;
+}
+
+fn ir_get_expr_type(ctx: IRContext, expr: ASTNode) -> string {
+    if expr == nil { return ""; }
+    if str_len(expr.type_name) > 0 { return expr.type_name; }
+    if expr.kind == AST_IDENT {
+        let sym = ir_get_local(ctx, expr.str_val);
+        if sym != nil { return sym.type_name; }
+    } else if expr.kind == AST_MEMBER {
+        let base_type = ir_get_expr_type(ctx, expr.left);
+        let ti = tc_find_type(ctx.tc, base_type);
+        if ti != nil {
+            return tc_get_field_type(ti, expr.str_val);
+        }
+    } else if expr.kind == AST_NEW {
+        return expr.type_name;
+    } else if expr.kind == AST_CALL {
+        let fs = tc_find_func(ctx.tc, expr.str_val);
+        if fs != nil {
+            return fs.type_name;
+        }
+        let callee = expr.str_val;
+        if str_eq(callee, "str_concat") || str_eq(callee, "str_sub") ||
+           str_eq(callee, "str_from_int") || str_eq(callee, "get_cmd_arg") ||
+           str_eq(callee, "read_file") {
+            return "string";
+        } else if str_eq(callee, "str_eq") {
+            return "bool";
+        } else if str_eq(callee, "str_len") || str_eq(callee, "str_char") ||
+                  str_eq(callee, "alloc_mem") {
+            return "i64";
+        }
+    } else if expr.kind == AST_ARRAY_LIT {
+        return "array";
+    } else if expr.kind == AST_STR_LIT {
+        return "string";
+    } else if expr.kind == AST_BOOL_LIT {
+        return "bool";
+    } else if expr.kind == AST_INT_LIT {
+        return "i64";
+    }
+    return "";
+}
+
+fn get_const_val(name: string) -> i64 {
+    if str_eq(name, "TOK_EOF") { return 0; }
+    if str_eq(name, "TOK_IDENT") { return 1; }
+    if str_eq(name, "TOK_INT") { return 2; }
+    if str_eq(name, "TOK_STRING") { return 3; }
+    if str_eq(name, "TOK_BOOL") { return 4; }
+    if str_eq(name, "TOK_FN") { return 10; }
+    if str_eq(name, "TOK_LET") { return 11; }
+    if str_eq(name, "TOK_STRUCT") { return 12; }
+    if str_eq(name, "TOK_CLASS") { return 13; }
+    if str_eq(name, "TOK_DEINIT") { return 14; }
+    if str_eq(name, "TOK_RETURN") { return 15; }
+    if str_eq(name, "TOK_IF") { return 16; }
+    if str_eq(name, "TOK_ELSE") { return 17; }
+    if str_eq(name, "TOK_WHILE") { return 18; }
+    if str_eq(name, "TOK_NEW") { return 19; }
+    if str_eq(name, "TOK_RAW") { return 20; }
+    if str_eq(name, "TOK_PRINT") { return 21; }
+    if str_eq(name, "TOK_TRUE") { return 22; }
+    if str_eq(name, "TOK_FALSE") { return 23; }
+    if str_eq(name, "TOK_IMPORT") { return 24; }
+    if str_eq(name, "TOK_PLUS") { return 30; }
+    if str_eq(name, "TOK_MINUS") { return 31; }
+    if str_eq(name, "TOK_STAR") { return 32; }
+    if str_eq(name, "TOK_SLASH") { return 33; }
+    if str_eq(name, "TOK_PERCENT") { return 34; }
+    if str_eq(name, "TOK_EQ") { return 35; }
+    if str_eq(name, "TOK_NOT_EQ") { return 36; }
+    if str_eq(name, "TOK_LT") { return 37; }
+    if str_eq(name, "TOK_LTE") { return 38; }
+    if str_eq(name, "TOK_GT") { return 39; }
+    if str_eq(name, "TOK_GTE") { return 40; }
+    if str_eq(name, "TOK_AND") { return 41; }
+    if str_eq(name, "TOK_OR") { return 42; }
+    if str_eq(name, "TOK_BANG") { return 43; }
+    if str_eq(name, "TOK_ASSIGN") { return 44; }
+    if str_eq(name, "TOK_DOT") { return 45; }
+    if str_eq(name, "TOK_COMMA") { return 46; }
+    if str_eq(name, "TOK_COLON") { return 47; }
+    if str_eq(name, "TOK_SEMICOLON") { return 48; }
+    if str_eq(name, "TOK_LPAREN") { return 49; }
+    if str_eq(name, "TOK_RPAREN") { return 50; }
+    if str_eq(name, "TOK_LBRACE") { return 51; }
+    if str_eq(name, "TOK_RBRACE") { return 52; }
+    if str_eq(name, "TOK_LBRACKET") { return 53; }
+    if str_eq(name, "TOK_RBRACKET") { return 54; }
+    if str_eq(name, "TOK_ARROW") { return 55; }
+    if str_eq(name, "TOK_ENUM") { return 56; }
+    if str_eq(name, "TOK_MATCH") { return 57; }
+    if str_eq(name, "TOK_FAT_ARROW") { return 58; }
+
+    if str_eq(name, "AST_PROGRAM") { return 1; }
+    if str_eq(name, "AST_FN_DECL") { return 2; }
+    if str_eq(name, "AST_PARAM") { return 3; }
+    if str_eq(name, "AST_BLOCK") { return 4; }
+    if str_eq(name, "AST_LET_STMT") { return 5; }
+    if str_eq(name, "AST_ASSIGN_STMT") { return 6; }
+    if str_eq(name, "AST_RETURN_STMT") { return 7; }
+    if str_eq(name, "AST_IF_STMT") { return 8; }
+    if str_eq(name, "AST_WHILE_STMT") { return 9; }
+    if str_eq(name, "AST_EXPR_STMT") { return 10; }
+    if str_eq(name, "AST_STRUCT_DECL") { return 11; }
+    if str_eq(name, "AST_CLASS_DECL") { return 12; }
+    if str_eq(name, "AST_FIELD_DECL") { return 13; }
+    if str_eq(name, "AST_ENUM_DECL") { return 14; }
+    if str_eq(name, "AST_ENUM_VARIANT") { return 15; }
+    if str_eq(name, "AST_MATCH_STMT") { return 16; }
+    if str_eq(name, "AST_MATCH_ARM") { return 17; }
+    if str_eq(name, "AST_INT_LIT") { return 20; }
+    if str_eq(name, "AST_STR_LIT") { return 21; }
+    if str_eq(name, "AST_BOOL_LIT") { return 22; }
+    if str_eq(name, "AST_IDENT") { return 23; }
+    if str_eq(name, "AST_BIN_OP") { return 24; }
+    if str_eq(name, "AST_UN_OP") { return 25; }
+    if str_eq(name, "AST_CALL") { return 26; }
+    if str_eq(name, "AST_PRINT") { return 27; }
+    if str_eq(name, "AST_MEMBER") { return 28; }
+    if str_eq(name, "AST_INDEX") { return 29; }
+    if str_eq(name, "AST_NEW") { return 30; }
+    if str_eq(name, "AST_FIELD_INIT") { return 31; }
+    if str_eq(name, "AST_ARRAY_LIT") { return 32; }
+
+    if str_eq(name, "IR_OP_ALLOC_HEAP") { return 1; }
+    if str_eq(name, "IR_OP_ALLOC_STACK") { return 2; }
+    if str_eq(name, "IR_OP_LOAD") { return 3; }
+    if str_eq(name, "IR_OP_STORE") { return 4; }
+    if str_eq(name, "IR_OP_LOAD_INDEX") { return 5; }
+    if str_eq(name, "IR_OP_STORE_INDEX") { return 6; }
+    if str_eq(name, "IR_OP_COPY") { return 7; }
+    if str_eq(name, "IR_OP_CONST_INT") { return 8; }
+    if str_eq(name, "IR_OP_CONST_STR") { return 9; }
+    if str_eq(name, "IR_OP_CONST_BOOL") { return 10; }
+    if str_eq(name, "IR_OP_BIN_OP") { return 11; }
+    if str_eq(name, "IR_OP_UN_OP") { return 12; }
+    if str_eq(name, "IR_OP_CALL") { return 13; }
+    if str_eq(name, "IR_OP_PRINT") { return 14; }
+    if str_eq(name, "IR_OP_RETAIN") { return 15; }
+    if str_eq(name, "IR_OP_RELEASE") { return 16; }
+    if str_eq(name, "IR_OP_RETURN") { return 17; }
+    if str_eq(name, "IR_OP_BRANCH") { return 18; }
+    if str_eq(name, "IR_OP_JUMP") { return 19; }
+    if str_eq(name, "IR_OP_LABEL") { return 20; }
+
+    if str_eq(name, "TYPE_VOID") { return 0; }
+    if str_eq(name, "TYPE_INT") { return 1; }
+    if str_eq(name, "TYPE_BOOL") { return 2; }
+    if str_eq(name, "TYPE_STRING") { return 3; }
+    if str_eq(name, "TYPE_STRUCT") { return 4; }
+    if str_eq(name, "TYPE_CLASS") { return 5; }
+    if str_eq(name, "TYPE_RAW") { return 6; }
+
+    if str_eq(name, "PREC_LOWEST") { return 1; }
+    if str_eq(name, "PREC_OR") { return 2; }
+    if str_eq(name, "PREC_AND") { return 3; }
+    if str_eq(name, "PREC_EQUALS") { return 4; }
+    if str_eq(name, "PREC_LESSGREATER") { return 5; }
+    if str_eq(name, "PREC_SUM") { return 6; }
+    if str_eq(name, "PREC_PRODUCT") { return 7; }
+    if str_eq(name, "PREC_PREFIX") { return 8; }
+    if str_eq(name, "PREC_CALL") { return 9; }
+    if str_eq(name, "PREC_INDEX") { return 10; }
+    if str_eq(name, "PREC_MEMBER") { return 11; }
+
+    return 0 - 999999;
+}
+
+fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
+    if expr == nil { return 0; }
+
+    if expr.kind == AST_INT_LIT {
+        let dest = ir_alloc_val(ctx);
+        let inst = ir_emit(ctx, IR_OP_CONST_INT, dest, 0);
+        inst.int_val = expr.int_val;
+        return dest;
+    }
+
+    if expr.kind == AST_STR_LIT {
+        let lbl = ir_add_string(ctx, expr.str_val);
+        let dest = ir_alloc_val(ctx);
+        let inst = ir_emit(ctx, IR_OP_CONST_STR, dest, 0);
+        inst.str_val = lbl;
+        return dest;
+    }
+
+    if expr.kind == AST_BOOL_LIT {
+        let dest = ir_alloc_val(ctx);
+        let inst = ir_emit(ctx, IR_OP_CONST_BOOL, dest, 0);
+        inst.int_val = expr.int_val;
+        return dest;
+    }
+
+    if expr.kind == AST_IDENT {
+        if str_eq(expr.str_val, "nil") {
+            let dest = ir_alloc_val(ctx);
+            ir_emit(ctx, IR_OP_CONST_INT, dest, 0);
+            return dest;
+        }
+        let cv = get_const_val(expr.str_val);
+        if cv != (0 - 999999) {
+            let dest = ir_alloc_val(ctx);
+            let inst = ir_emit(ctx, IR_OP_CONST_INT, dest, 0);
+            inst.int_val = cv;
+            return dest;
+        }
+        let sym = ir_get_local(ctx, expr.str_val);
+        if sym != nil {
+            return sym.offset;
+        }
+        return 0;
+    }
+
+    if expr.kind == AST_BIN_OP {
+        let left = ir_build_expr(ctx, expr.left);
+        let right = ir_build_expr(ctx, expr.right);
+        let dest = ir_alloc_val(ctx);
+        let inst = ir_emit(ctx, IR_OP_BIN_OP, dest, left);
+        inst.src2 = right;
+        inst.str_val = expr.str_val;
+        return dest;
+    }
+
+    if expr.kind == AST_UN_OP {
+        let right = ir_build_expr(ctx, expr.left);
+        let dest = ir_alloc_val(ctx);
+        let inst = ir_emit(ctx, IR_OP_UN_OP, dest, right);
+        inst.str_val = expr.str_val;
+        return dest;
+    }
+
+    if expr.kind == AST_CALL {
+        if str_eq(expr.str_val, "print") {
+            let arg = expr.child;
+            while arg != nil {
+                let v = ir_build_expr(ctx, arg);
+                let inst = ir_emit(ctx, IR_OP_PRINT, 0, v);
+                let t_kind = TYPE_INT;
+                if arg.kind == AST_STR_LIT {
+                    t_kind = TYPE_STRING;
+                } else if arg.kind == AST_BOOL_LIT {
+                    t_kind = TYPE_BOOL;
+                } else {
+                    let t_name = ir_get_expr_type(ctx, arg);
+                    if str_eq(t_name, "string") {
+                        t_kind = TYPE_STRING;
+                    } else if str_eq(t_name, "bool") {
+                        t_kind = TYPE_BOOL;
+                    }
+                }
+                inst.type_kind = t_kind;
+                arg = arg.next;
+            }
+            return 0;
+        }
+
+        let dot_pos: i64 = 0 - 1;
+        let k: i64 = 0;
+        while k < str_len(expr.str_val) {
+            if str_char(expr.str_val, k) == 46 { dot_pos = k; }
+            k = k + 1;
+        }
+        if dot_pos > 0 {
+            let enum_n = str_sub(expr.str_val, 0, dot_pos);
+            let var_n = str_sub(expr.str_val, dot_pos + 1, str_len(expr.str_val) - dot_pos - 1);
+            let ti = tc_find_type(ctx.tc, enum_n);
+            if ti != nil {
+                let tag_val = tc_get_field_offset(ti, var_n);
+                let dest = ir_alloc_val(ctx);
+                let alloc_inst = ir_emit(ctx, IR_OP_ALLOC_STACK, dest, 0);
+                alloc_inst.offset = ti.size;
+                let tag_const = ir_alloc_val(ctx);
+                let ci = ir_emit(ctx, IR_OP_CONST_INT, tag_const, 0);
+                ci.int_val = tag_val;
+                let st = ir_emit(ctx, IR_OP_STORE, dest, tag_const);
+                st.offset = 0;
+                let arg = expr.child;
+                let p_idx: i64 = 0;
+                while arg != nil {
+                    let arg_val = ir_build_expr(ctx, arg);
+                    let st2 = ir_emit(ctx, IR_OP_STORE, dest, arg_val);
+                    st2.offset = 8 + p_idx * 8;
+                    p_idx = p_idx + 1;
+                    arg = arg.next;
+                }
+                return dest;
+            }
+        }
+
+        let arg = expr.child;
+        let count: i64 = 0;
+        let a1: i64 = 0;
+        let a2: i64 = 0;
+        let a3: i64 = 0;
+        let a4: i64 = 0;
+        let a5: i64 = 0;
+        while arg != nil {
+            let v = ir_build_expr(ctx, arg);
+            if count == 0 { a1 = v; }
+            else if count == 1 { a2 = v; }
+            else if count == 2 { a3 = v; }
+            else if count == 3 { a4 = v; }
+            else if count == 4 { a5 = v; }
+            count = count + 1;
+            arg = arg.next;
+        }
+        let dest = ir_alloc_val(ctx);
+        let inst = ir_emit(ctx, IR_OP_CALL, dest, a1);
+        inst.src2 = a2;
+        inst.offset = a3;
+        inst.int_val = a4;
+        inst.extra = a5;
+        inst.str_val = expr.str_val;
+        inst.arg_count = count;
+        return dest;
+    }
+
+    if expr.kind == AST_MEMBER {
+        if expr.left.kind == AST_IDENT {
+            let enum_ti = tc_find_type(ctx.tc, expr.left.str_val);
+            if enum_ti != nil {
+                let tag_val = tc_get_field_offset(enum_ti, expr.str_val);
+                let dest = ir_alloc_val(ctx);
+                let alloc_inst = ir_emit(ctx, IR_OP_ALLOC_STACK, dest, 0);
+                alloc_inst.offset = enum_ti.size;
+                let tag_const = ir_alloc_val(ctx);
+                let ci = ir_emit(ctx, IR_OP_CONST_INT, tag_const, 0);
+                ci.int_val = tag_val;
+                let st = ir_emit(ctx, IR_OP_STORE, dest, tag_const);
+                st.offset = 0;
+                return dest;
+            }
+        }
+        let obj = ir_build_expr(ctx, expr.left);
+        let base_type = ir_get_expr_type(ctx, expr.left);
+        let ti = tc_find_type(ctx.tc, base_type);
+        let offset = tc_get_field_offset(ti, expr.str_val);
+        let dest = ir_alloc_val(ctx);
+        let inst = ir_emit(ctx, IR_OP_LOAD, dest, obj);
+        inst.offset = offset;
+        return dest;
+    }
+
+    if expr.kind == AST_ARRAY_LIT {
+        let dest = ir_alloc_val(ctx);
+        let alloc_inst = ir_emit(ctx, IR_OP_ALLOC_STACK, dest, 0);
+        alloc_inst.offset = 64;
+        let elem = expr.child;
+        let elem_idx: i64 = 0;
+        while elem != nil {
+            let elem_val = ir_build_expr(ctx, elem);
+            let st = ir_emit(ctx, IR_OP_STORE, dest, elem_val);
+            st.offset = elem_idx * 8;
+            elem_idx = elem_idx + 1;
+            elem = elem.next;
+        }
+        return dest;
+    }
+
+    if expr.kind == AST_INDEX {
+        let base = ir_build_expr(ctx, expr.left);
+        let idx = ir_build_expr(ctx, expr.right);
+        let dest = ir_alloc_val(ctx);
+        let inst = ir_emit(ctx, IR_OP_LOAD_INDEX, dest, base);
+        inst.src2 = idx;
+        let base_type = ir_get_expr_type(ctx, expr.left);
+        if str_eq(base_type, "array") || str_eq(base_type, "[i64]") || str_eq(base_type, "raw i64") {
+            inst.int_val = 8;
+        } else {
+            inst.int_val = 1;
+        }
+        return dest;
+    }
+
+    if expr.kind == AST_NEW {
+        let ti = tc_find_type(ctx.tc, expr.type_name);
+        let dest = ir_alloc_val(ctx);
+        let is_ref_type: i64 = 0;
+        if ti != nil {
+            if ti.is_ref == 1 {
+                is_ref_type = 1;
+            }
+        }
+        if is_ref_type == 1 {
+            let inst = ir_emit(ctx, IR_OP_ALLOC_HEAP, dest, 0);
+            inst.str_val = expr.type_name;
+            inst.offset = ti.size;
+            inst.int_val = ti.type_id;
+            inst.type_is_ref = 1;
+        } else {
+            let inst = ir_emit(ctx, IR_OP_ALLOC_STACK, dest, 0);
+            inst.str_val = expr.type_name;
+            if ti != nil { inst.offset = ti.size; }
+        }
+        // Initialize fields
+        let init = expr.child;
+        while init != nil {
+            let val = ir_build_expr(ctx, init.left);
+            let offset = tc_get_field_offset(ti, init.str_val);
+            let st = ir_emit(ctx, IR_OP_STORE, dest, val);
+            st.offset = offset;
+            init = init.next;
+        }
+        return dest;
+    }
+
+    if expr.kind == AST_PRINT {
+        let arg = expr.child;
+        while arg != nil {
+            let v = ir_build_expr(ctx, arg);
+            let inst = ir_emit(ctx, IR_OP_PRINT, 0, v);
+            let type_n = ir_get_expr_type(ctx, arg);
+            if arg.kind == AST_STR_LIT || str_eq(type_n, "string") {
+                inst.type_kind = TYPE_STRING;
+            } else if arg.kind == AST_BOOL_LIT || str_eq(type_n, "bool") {
+                inst.type_kind = TYPE_BOOL;
+            } else {
+                inst.type_kind = TYPE_INT;
+            }
+            arg = arg.next;
+        }
+        return 0;
+    }
+
+    return 0;
+}
+
+fn ir_build_stmt(ctx: IRContext, stmt: ASTNode) {
+    if stmt == nil { return; }
+
+    if stmt.kind == AST_LET_STMT {
+        let val = ir_build_expr(ctx, stmt.left);
+        let var_id = ir_alloc_val(ctx);
+        ir_emit(ctx, IR_OP_COPY, var_id, val);
+        let type_n = stmt.type_name;
+        if str_len(type_n) == 0 {
+            type_n = ir_get_expr_type(ctx, stmt.left);
+        }
+        let ti = tc_find_type(ctx.tc, type_n);
+        let is_ref: i64 = 0;
+        if ti != nil {
+            if ti.is_ref == 1 {
+                is_ref = 1;
+            }
+        }
+        ir_set_local(ctx, stmt.str_val, var_id, is_ref, type_n);
+        return;
+    }
+
+    if stmt.kind == AST_ASSIGN_STMT {
+        let rhs = ir_build_expr(ctx, stmt.right);
+        if stmt.left.kind == AST_IDENT {
+            let sym = ir_get_local(ctx, stmt.left.str_val);
+            if sym != nil {
+                ir_emit(ctx, IR_OP_COPY, sym.offset, rhs);
+            }
+        } else if stmt.left.kind == AST_MEMBER {
+            let obj = ir_build_expr(ctx, stmt.left.left);
+            let base_type = ir_get_expr_type(ctx, stmt.left.left);
+            let ti = tc_find_type(ctx.tc, base_type);
+            let offset = tc_get_field_offset(ti, stmt.left.str_val);
+            let inst = ir_emit(ctx, IR_OP_STORE, obj, rhs);
+            inst.offset = offset;
+        } else if stmt.left.kind == AST_INDEX {
+            let base = ir_build_expr(ctx, stmt.left.left);
+            let idx = ir_build_expr(ctx, stmt.left.right);
+            let inst = ir_emit(ctx, IR_OP_STORE_INDEX, base, rhs);
+            inst.src2 = idx;
+            let base_type = ir_get_expr_type(ctx, stmt.left.left);
+            if str_eq(base_type, "array") || str_eq(base_type, "[i64]") || str_eq(base_type, "raw i64") {
+                inst.int_val = 8;
+            } else {
+                inst.int_val = 1;
+            }
+        }
+        return;
+    }
+
+    if stmt.kind == AST_RETURN_STMT {
+        let ret_val: i64 = 0;
+        if stmt.left != nil {
+            ret_val = ir_build_expr(ctx, stmt.left);
+        }
+        ir_emit(ctx, IR_OP_RETURN, 0, ret_val);
+        return;
+    }
+
+    if stmt.kind == AST_IF_STMT {
+        let cond = ir_build_expr(ctx, stmt.left);
+        let else_lbl = ir_new_label(ctx, ".L_else_");
+        let end_lbl = ir_new_label(ctx, ".L_ifend_");
+        let b_inst = ir_emit(ctx, IR_OP_BRANCH, 0, cond);
+        b_inst.label = else_lbl;
+        ir_build_block(ctx, stmt.right);
+        let j_inst = ir_emit(ctx, IR_OP_JUMP, 0, 0);
+        j_inst.label = end_lbl;
+        let l_inst = ir_emit(ctx, IR_OP_LABEL, 0, 0);
+        l_inst.label = else_lbl;
+        if stmt.child != nil {
+            if stmt.child.kind == AST_BLOCK {
+                ir_build_block(ctx, stmt.child);
+            } else {
+                ir_build_stmt(ctx, stmt.child);
+            }
+        }
+        let e_inst = ir_emit(ctx, IR_OP_LABEL, 0, 0);
+        e_inst.label = end_lbl;
+        return;
+    }
+
+    if stmt.kind == AST_MATCH_STMT {
+        let target_val = ir_build_expr(ctx, stmt.left);
+        let end_lbl = ir_new_label(ctx, ".L_matchend_");
+        let tag_val = ir_alloc_val(ctx);
+        let load_inst = ir_emit(ctx, IR_OP_LOAD, tag_val, target_val);
+        load_inst.offset = 0;
+
+        let arm = stmt.child;
+        while arm != nil {
+            if arm.int_val == 1 { // wildcard
+                ir_build_block(ctx, arm.right);
+                let j_inst = ir_emit(ctx, IR_OP_JUMP, 0, 0);
+                j_inst.label = end_lbl;
+                arm = nil;
+            } else {
+                let arm_lbl = ir_new_label(ctx, ".L_arm_");
+                let next_lbl = ir_new_label(ctx, ".L_nextarm_");
+                let exp_tag = ir_alloc_val(ctx);
+                let ti = tc_find_type(ctx.tc, arm.type_name);
+                let exp_val: i64 = 0;
+                if ti != nil {
+                    exp_val = tc_get_field_offset(ti, arm.str_val);
+                }
+                let const_inst = ir_emit(ctx, IR_OP_CONST_INT, exp_tag, 0);
+                const_inst.int_val = exp_val;
+                let eq_val = ir_alloc_val(ctx);
+                let bin_inst = ir_emit(ctx, IR_OP_BIN_OP, eq_val, tag_val);
+                bin_inst.src2 = exp_tag;
+                bin_inst.str_val = "==";
+                let b_inst = ir_emit(ctx, IR_OP_BRANCH, 0, eq_val);
+                b_inst.label = next_lbl;
+
+                // Bindings
+                let b_var = arm.left;
+                let b_idx: i64 = 0;
+                while b_var != nil {
+                    let b_val = ir_alloc_val(ctx);
+                    let ld = ir_emit(ctx, IR_OP_LOAD, b_val, target_val);
+                    ld.offset = 8 + b_idx * 8;
+                    ir_set_local(ctx, b_var.str_val, b_val, 0, "i64");
+                    b_idx = b_idx + 1;
+                    b_var = b_var.next;
+                }
+
+                ir_build_block(ctx, arm.right);
+                let j_inst = ir_emit(ctx, IR_OP_JUMP, 0, 0);
+                j_inst.label = end_lbl;
+
+                let lbl_inst = ir_emit(ctx, IR_OP_LABEL, 0, 0);
+                lbl_inst.label = next_lbl;
+                arm = arm.next;
+            }
+        }
+        let end_inst = ir_emit(ctx, IR_OP_LABEL, 0, 0);
+        end_inst.label = end_lbl;
+        return;
+    }
+
+    if stmt.kind == AST_WHILE_STMT {
+        let loop_lbl = ir_new_label(ctx, ".L_loop_");
+        let end_lbl = ir_new_label(ctx, ".L_loop_end_");
+        let l_inst = ir_emit(ctx, IR_OP_LABEL, 0, 0);
+        l_inst.label = loop_lbl;
+        let cond = ir_build_expr(ctx, stmt.left);
+        let b_inst = ir_emit(ctx, IR_OP_BRANCH, 0, cond);
+        b_inst.label = end_lbl;
+        ir_build_block(ctx, stmt.right);
+        let j_inst = ir_emit(ctx, IR_OP_JUMP, 0, 0);
+        j_inst.label = loop_lbl;
+        let e_inst = ir_emit(ctx, IR_OP_LABEL, 0, 0);
+        e_inst.label = end_lbl;
+        return;
+    }
+
+    if stmt.kind == AST_EXPR_STMT {
+        ir_build_expr(ctx, stmt.left);
+    }
+}
+
+fn ir_build_block(ctx: IRContext, block: ASTNode) {
+    if block == nil { return; }
+    let s = block.child;
+    while s != nil {
+        ir_build_stmt(ctx, s);
+        s = s.next;
+    }
+}
+
+fn ir_build_function(ctx: IRContext, fn_decl: ASTNode) {
+    let fn_obj = new IRFunc {
+        name: fn_decl.str_val,
+        param_count: 0,
+        max_local: 0,
+        inst_head: nil,
+        inst_tail: nil,
+        next: nil
+    };
+    ctx.cur_fn = fn_obj;
+    ctx.val_seq = 1;
+    ctx.locals = nil;
+
+    // Parameters (borrowed by default)
+    let p = fn_decl.left;
+    let p_idx: i64 = 0;
+    while p != nil {
+        let pid = ir_alloc_val(ctx);
+        ir_set_local(ctx, p.str_val, pid, 0, p.type_name);
+        p_idx = p_idx + 1;
+        p = p.next;
+    }
+    fn_obj.param_count = p_idx;
+
+    ir_build_block(ctx, fn_decl.right);
+
+    if fn_obj.inst_tail == nil || fn_obj.inst_tail.op != IR_OP_RETURN {
+        ir_emit(ctx, IR_OP_RETURN, 0, 0);
+    }
+
+    if ctx.funcs_head == nil {
+        ctx.funcs_head = fn_obj;
+        ctx.funcs_tail = fn_obj;
+    } else {
+        ctx.funcs_tail.next = fn_obj;
+        ctx.funcs_tail = fn_obj;
+    }
+}
+
+fn ir_build_program(ctx: IRContext, prog: ASTNode) {
+    let d = prog.child;
+    while d != nil {
+        if d.kind == AST_FN_DECL {
+            ir_build_function(ctx, d);
+        } else if d.kind == AST_CLASS_DECL && d.right != nil {
+            let deinit_fn = new ASTNode {
+                kind: AST_FN_DECL,
+                str_val: str_concat("__gat_deinit_", d.str_val),
+                type_name: "void",
+                left: new ASTNode {
+                    kind: AST_PARAM,
+                    str_val: "self",
+                    type_name: d.str_val,
+                    left: nil, right: nil, child: nil, next: nil
+                },
+                right: d.right,
+                child: nil, next: nil
+            };
+            ir_build_function(ctx, deinit_fn);
+        }
+        d = d.next;
+    }
+}
+
+// ----------------------------------------------------------------------------

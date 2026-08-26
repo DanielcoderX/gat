@@ -1,0 +1,812 @@
+// ============================================================================
+// src/parser.gat - Parser Implementation
+// ============================================================================
+
+
+// ----------------------------------------------------------------------------
+// 5. Parser Implementation
+// ----------------------------------------------------------------------------
+
+fn parser_new(lex: Lexer) -> Parser {
+    let p = new Parser {
+        lex: lex,
+        cur_tok: nil,
+        peek_tok: nil
+    };
+    parser_next_token(p);
+    parser_next_token(p);
+    return p;
+}
+
+fn parser_next_token(p: Parser) {
+    p.cur_tok = p.peek_tok;
+    p.peek_tok = lexer_next_token(p.lex);
+}
+
+fn parser_cur_is(p: Parser, kind: i64) -> bool {
+    if p.cur_tok == nil { return false; }
+    return p.cur_tok.kind == kind;
+}
+
+fn parser_peek_is(p: Parser, kind: i64) -> bool {
+    if p.peek_tok == nil { return false; }
+    return p.peek_tok.kind == kind;
+}
+
+fn parser_expect_peek(p: Parser, kind: i64) -> bool {
+    if parser_peek_is(p, kind) {
+        parser_next_token(p);
+        return true;
+    }
+    print("[Error] line ", p.peek_tok.line, ": expected token kind ", kind, ", got ", p.peek_tok.kind, "\n");
+    return false;
+}
+
+// Precedence Table
+let PREC_LOWEST: i64 = 1;
+let PREC_OR: i64 = 2;
+let PREC_AND: i64 = 3;
+let PREC_EQUALS: i64 = 4;
+let PREC_LESSGREATER: i64 = 5;
+let PREC_SUM: i64 = 6;
+let PREC_PRODUCT: i64 = 7;
+let PREC_PREFIX: i64 = 8;
+let PREC_CALL: i64 = 9;
+let PREC_INDEX: i64 = 10;
+let PREC_MEMBER: i64 = 11;
+
+fn get_precedence(kind: i64) -> i64 {
+    if kind == TOK_OR { return PREC_OR; }
+    if kind == TOK_AND { return PREC_AND; }
+    if kind == TOK_EQ || kind == TOK_NOT_EQ { return PREC_EQUALS; }
+    if kind == TOK_LT || kind == TOK_LTE || kind == TOK_GT || kind == TOK_GTE { return PREC_LESSGREATER; }
+    if kind == TOK_PLUS || kind == TOK_MINUS { return PREC_SUM; }
+    if kind == TOK_SLASH || kind == TOK_STAR || kind == TOK_PERCENT { return PREC_PRODUCT; }
+    if kind == TOK_LPAREN { return PREC_CALL; }
+    if kind == TOK_LBRACKET { return PREC_INDEX; }
+    if kind == TOK_DOT { return PREC_MEMBER; }
+    return PREC_LOWEST;
+}
+
+fn parse_type_name(p: Parser) -> string {
+    if parser_cur_is(p, TOK_RAW) {
+        parser_next_token(p);
+        return str_concat("raw ", p.cur_tok.lit);
+    }
+    return p.cur_tok.lit;
+}
+
+fn parse_expression(p: Parser, prec: i64) -> ASTNode {
+    let left: ASTNode = nil;
+
+    // Prefix rules
+    if parser_cur_is(p, TOK_INT) {
+        left = new ASTNode {
+            kind: AST_INT_LIT,
+            int_val: p.cur_tok.val_i64,
+            str_val: p.cur_tok.lit,
+            type_kind: TYPE_INT,
+            type_name: "i64",
+            left: nil, right: nil, child: nil, next: nil
+        };
+    } else if parser_cur_is(p, TOK_STRING) {
+        left = new ASTNode {
+            kind: AST_STR_LIT,
+            str_val: p.cur_tok.lit,
+            type_kind: TYPE_STRING,
+            type_name: "string",
+            left: nil, right: nil, child: nil, next: nil
+        };
+    } else if parser_cur_is(p, TOK_TRUE) || parser_cur_is(p, TOK_FALSE) {
+        left = new ASTNode {
+            kind: AST_BOOL_LIT,
+            int_val: p.cur_tok.val_i64,
+            str_val: p.cur_tok.lit,
+            type_kind: TYPE_BOOL,
+            type_name: "bool",
+            left: nil, right: nil, child: nil, next: nil
+        };
+    } else if parser_cur_is(p, TOK_IDENT) {
+        left = new ASTNode {
+            kind: AST_IDENT,
+            str_val: p.cur_tok.lit,
+            left: nil, right: nil, child: nil, next: nil
+        };
+    } else if parser_cur_is(p, TOK_LBRACKET) {
+        let head_elem: ASTNode = nil;
+        let tail_elem: ASTNode = nil;
+        if !parser_peek_is(p, TOK_RBRACKET) {
+            parser_next_token(p);
+            let e_node = parse_expression(p, PREC_LOWEST);
+            head_elem = e_node;
+            tail_elem = e_node;
+            while parser_peek_is(p, TOK_COMMA) {
+                parser_next_token(p);
+                parser_next_token(p);
+                let e_node2 = parse_expression(p, PREC_LOWEST);
+                tail_elem.next = e_node2;
+                tail_elem = e_node2;
+            }
+        }
+        if !parser_expect_peek(p, TOK_RBRACKET) { return nil; }
+        left = new ASTNode {
+            kind: AST_ARRAY_LIT,
+            child: head_elem,
+            left: nil, right: nil, next: nil
+        };
+    } else if parser_cur_is(p, TOK_BANG) || parser_cur_is(p, TOK_MINUS) || parser_cur_is(p, TOK_RAW) {
+        let op_str = p.cur_tok.lit;
+        parser_next_token(p);
+        let right_expr = parse_expression(p, PREC_PREFIX);
+        left = new ASTNode {
+            kind: AST_UN_OP,
+            str_val: op_str,
+            left: right_expr,
+            right: nil, child: nil, next: nil
+        };
+    } else if parser_cur_is(p, TOK_LPAREN) {
+        parser_next_token(p);
+        left = parse_expression(p, PREC_LOWEST);
+        if !parser_expect_peek(p, TOK_RPAREN) {
+            return nil;
+        }
+    } else if parser_cur_is(p, TOK_NEW) {
+        parser_next_token(p);
+        let type_name = p.cur_tok.lit;
+        if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+        let head_init: ASTNode = nil;
+        let tail_init: ASTNode = nil;
+        parser_next_token(p);
+        while !parser_cur_is(p, TOK_RBRACE) && !parser_cur_is(p, TOK_EOF) {
+            if parser_cur_is(p, TOK_IDENT) {
+                let f_name = p.cur_tok.lit;
+                if !parser_expect_peek(p, TOK_COLON) { return nil; }
+                parser_next_token(p);
+                let f_val = parse_expression(p, PREC_LOWEST);
+                let init_node = new ASTNode {
+                    kind: AST_FIELD_INIT,
+                    str_val: f_name,
+                    left: f_val,
+                    right: nil, child: nil, next: nil
+                };
+                if head_init == nil {
+                    head_init = init_node;
+                    tail_init = init_node;
+                } else {
+                    tail_init.next = init_node;
+                    tail_init = init_node;
+                }
+                if parser_peek_is(p, TOK_COMMA) {
+                    parser_next_token(p);
+                }
+            }
+            parser_next_token(p);
+        }
+        left = new ASTNode {
+            kind: AST_NEW,
+            type_name: type_name,
+            child: head_init,
+            left: nil, right: nil, next: nil
+        };
+    } else if parser_cur_is(p, TOK_PRINT) {
+        if !parser_expect_peek(p, TOK_LPAREN) { return nil; }
+        let head_arg: ASTNode = nil;
+        let tail_arg: ASTNode = nil;
+        if !parser_peek_is(p, TOK_RPAREN) {
+            parser_next_token(p);
+            head_arg = parse_expression(p, PREC_LOWEST);
+            tail_arg = head_arg;
+            while parser_peek_is(p, TOK_COMMA) {
+                parser_next_token(p);
+                parser_next_token(p);
+                let arg_node = parse_expression(p, PREC_LOWEST);
+                tail_arg.next = arg_node;
+                tail_arg = arg_node;
+            }
+        }
+        if !parser_expect_peek(p, TOK_RPAREN) { return nil; }
+        left = new ASTNode {
+            kind: AST_PRINT,
+            child: head_arg,
+            left: nil, right: nil, next: nil
+        };
+    }
+
+    // Infix rules
+    while !parser_peek_is(p, TOK_SEMICOLON) && prec < get_precedence(p.peek_tok.kind) {
+        let peek_kind = p.peek_tok.kind;
+        if peek_kind == TOK_PLUS || peek_kind == TOK_MINUS || peek_kind == TOK_STAR ||
+           peek_kind == TOK_SLASH || peek_kind == TOK_PERCENT || peek_kind == TOK_EQ ||
+           peek_kind == TOK_NOT_EQ || peek_kind == TOK_LT || peek_kind == TOK_LTE ||
+           peek_kind == TOK_GT || peek_kind == TOK_GTE || peek_kind == TOK_AND || peek_kind == TOK_OR {
+            parser_next_token(p);
+            let op_str = p.cur_tok.lit;
+            let op_prec = get_precedence(p.cur_tok.kind);
+            parser_next_token(p);
+            let right_expr = parse_expression(p, op_prec);
+            let bin = new ASTNode {
+                kind: AST_BIN_OP,
+                str_val: op_str,
+                left: left,
+                right: right_expr,
+                child: nil, next: nil
+            };
+            left = bin;
+        } else if peek_kind == TOK_LPAREN {
+            parser_next_token(p);
+            let callee_name = left.str_val;
+            if left.kind == AST_MEMBER {
+                callee_name = str_concat(left.left.str_val, str_concat(".", left.str_val));
+            }
+            let head_arg: ASTNode = nil;
+            let tail_arg: ASTNode = nil;
+            if !parser_peek_is(p, TOK_RPAREN) {
+                parser_next_token(p);
+                head_arg = parse_expression(p, PREC_LOWEST);
+                tail_arg = head_arg;
+                while parser_peek_is(p, TOK_COMMA) {
+                    parser_next_token(p);
+                    parser_next_token(p);
+                    let arg_node = parse_expression(p, PREC_LOWEST);
+                    tail_arg.next = arg_node;
+                    tail_arg = arg_node;
+                }
+            }
+            if !parser_expect_peek(p, TOK_RPAREN) { return nil; }
+            let call = new ASTNode {
+                kind: AST_CALL,
+                str_val: callee_name,
+                child: head_arg,
+                left: nil, right: nil, next: nil
+            };
+            left = call;
+        } else if peek_kind == TOK_DOT {
+            parser_next_token(p);
+            if !parser_expect_peek(p, TOK_IDENT) { return nil; }
+            let member_name = p.cur_tok.lit;
+            let mem = new ASTNode {
+                kind: AST_MEMBER,
+                str_val: member_name,
+                left: left,
+                right: nil, child: nil, next: nil
+            };
+            left = mem;
+        } else if peek_kind == TOK_LBRACKET {
+            parser_next_token(p);
+            parser_next_token(p);
+            let idx_expr = parse_expression(p, PREC_LOWEST);
+            if !parser_expect_peek(p, TOK_RBRACKET) { return nil; }
+            let idx_node = new ASTNode {
+                kind: AST_INDEX,
+                left: left,
+                right: idx_expr,
+                child: nil, next: nil
+            };
+            left = idx_node;
+        } else {
+            return left;
+        }
+    }
+
+    return left;
+}
+
+fn parse_block(p: Parser) -> ASTNode {
+    if !parser_cur_is(p, TOK_LBRACE) {
+        return nil;
+    }
+    let head_stmt: ASTNode = nil;
+    let tail_stmt: ASTNode = nil;
+    parser_next_token(p);
+    while !parser_cur_is(p, TOK_RBRACE) && !parser_cur_is(p, TOK_EOF) {
+        let stmt = parse_statement(p);
+        if stmt != nil {
+            if head_stmt == nil {
+                head_stmt = stmt;
+                tail_stmt = stmt;
+            } else {
+                tail_stmt.next = stmt;
+                tail_stmt = stmt;
+            }
+        }
+        parser_next_token(p);
+    }
+    return new ASTNode {
+        kind: AST_BLOCK,
+        child: head_stmt,
+        left: nil, right: nil, next: nil
+    };
+}
+
+fn parse_statement(p: Parser) -> ASTNode {
+    if parser_cur_is(p, TOK_MATCH) {
+        return parse_match_stmt(p);
+    }
+    if parser_cur_is(p, TOK_LET) {
+        if !parser_expect_peek(p, TOK_IDENT) { return nil; }
+        let var_name = p.cur_tok.lit;
+        let type_name = "";
+        if parser_peek_is(p, TOK_COLON) {
+            parser_next_token(p);
+            parser_next_token(p);
+            type_name = parse_type_name(p);
+        }
+        if !parser_expect_peek(p, TOK_ASSIGN) { return nil; }
+        parser_next_token(p);
+        let val_expr = parse_expression(p, PREC_LOWEST);
+        if parser_peek_is(p, TOK_SEMICOLON) {
+            parser_next_token(p);
+        }
+        return new ASTNode {
+            kind: AST_LET_STMT,
+            str_val: var_name,
+            type_name: type_name,
+            left: val_expr,
+            right: nil, child: nil, next: nil
+        };
+    }
+
+    if parser_cur_is(p, TOK_RETURN) {
+        let ret_val: ASTNode = nil;
+        if !parser_peek_is(p, TOK_SEMICOLON) {
+            parser_next_token(p);
+            ret_val = parse_expression(p, PREC_LOWEST);
+        }
+        if parser_peek_is(p, TOK_SEMICOLON) {
+            parser_next_token(p);
+        }
+        return new ASTNode {
+            kind: AST_RETURN_STMT,
+            left: ret_val,
+            right: nil, child: nil, next: nil
+        };
+    }
+
+    if parser_cur_is(p, TOK_IF) {
+        parser_next_token(p);
+        let cond_expr = parse_expression(p, PREC_LOWEST);
+        if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+        let then_block = parse_block(p);
+        let else_block: ASTNode = nil;
+        if parser_peek_is(p, TOK_ELSE) {
+            parser_next_token(p);
+            if parser_peek_is(p, TOK_IF) {
+                parser_next_token(p);
+                else_block = parse_statement(p);
+            } else if parser_peek_is(p, TOK_LBRACE) {
+                parser_next_token(p);
+                else_block = parse_block(p);
+            }
+        }
+        return new ASTNode {
+            kind: AST_IF_STMT,
+            left: cond_expr,
+            right: then_block,
+            child: else_block,
+            next: nil
+        };
+    }
+
+    if parser_cur_is(p, TOK_WHILE) {
+        parser_next_token(p);
+        let cond_expr = parse_expression(p, PREC_LOWEST);
+        if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+        let body_block = parse_block(p);
+        return new ASTNode {
+            kind: AST_WHILE_STMT,
+            left: cond_expr,
+            right: body_block,
+            child: nil, next: nil
+        };
+    }
+
+    // Expression statement or Assignment
+    let expr = parse_expression(p, PREC_LOWEST);
+    if parser_peek_is(p, TOK_ASSIGN) {
+        parser_next_token(p);
+        parser_next_token(p);
+        let rhs = parse_expression(p, PREC_LOWEST);
+        if parser_peek_is(p, TOK_SEMICOLON) {
+            parser_next_token(p);
+        }
+        return new ASTNode {
+            kind: AST_ASSIGN_STMT,
+            left: expr,
+            right: rhs,
+            child: nil, next: nil
+        };
+    }
+
+    if parser_peek_is(p, TOK_SEMICOLON) {
+        parser_next_token(p);
+    }
+    return new ASTNode {
+        kind: AST_EXPR_STMT,
+        left: expr,
+        right: nil, child: nil, next: nil
+    };
+}
+
+fn parse_match_stmt(p: Parser) -> ASTNode {
+    parser_next_token(p);
+    let target = parse_expression(p, PREC_LOWEST);
+    if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+    let head_arm: ASTNode = nil;
+    let tail_arm: ASTNode = nil;
+    parser_next_token(p);
+    while !parser_cur_is(p, TOK_RBRACE) && !parser_cur_is(p, TOK_EOF) {
+        if parser_cur_is(p, TOK_IDENT) {
+            let first = p.cur_tok.lit;
+            let is_wildcard: i64 = 0;
+            let enum_name = "";
+            let var_name = first;
+            if str_eq(first, "_") {
+                is_wildcard = 1;
+            } else if parser_peek_is(p, TOK_DOT) {
+                parser_next_token(p);
+                if !parser_expect_peek(p, TOK_IDENT) { return nil; }
+                enum_name = first;
+                var_name = p.cur_tok.lit;
+            }
+            let head_bind: ASTNode = nil;
+            let tail_bind: ASTNode = nil;
+            if is_wildcard == 0 && parser_peek_is(p, TOK_LPAREN) {
+                parser_next_token(p);
+                if !parser_peek_is(p, TOK_RPAREN) {
+                    parser_next_token(p);
+                    let b_node = new ASTNode {
+                        kind: AST_IDENT,
+                        str_val: p.cur_tok.lit,
+                        left: nil, right: nil, child: nil, next: nil
+                    };
+                    head_bind = b_node;
+                    tail_bind = b_node;
+                    while parser_peek_is(p, TOK_COMMA) {
+                        parser_next_token(p);
+                        parser_next_token(p);
+                        let b_node2 = new ASTNode {
+                            kind: AST_IDENT,
+                            str_val: p.cur_tok.lit,
+                            left: nil, right: nil, child: nil, next: nil
+                        };
+                        tail_bind.next = b_node2;
+                        tail_bind = b_node2;
+                    }
+                }
+                if !parser_expect_peek(p, TOK_RPAREN) { return nil; }
+            }
+            if !parser_expect_peek(p, TOK_FAT_ARROW) { return nil; }
+            if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+            let body = parse_block(p);
+            let arm = new ASTNode {
+                kind: AST_MATCH_ARM,
+                str_val: var_name,
+                type_name: enum_name,
+                int_val: is_wildcard,
+                left: head_bind,
+                right: body,
+                child: nil, next: nil
+            };
+            if head_arm == nil {
+                head_arm = arm;
+                tail_arm = arm;
+            } else {
+                tail_arm.next = arm;
+                tail_arm = arm;
+            }
+            if parser_peek_is(p, TOK_COMMA) {
+                parser_next_token(p);
+            }
+        }
+        parser_next_token(p);
+    }
+    return new ASTNode {
+        kind: AST_MATCH_STMT,
+        left: target,
+        child: head_arm,
+        right: nil, next: nil
+    };
+}
+
+fn parse_fn_decl(p: Parser) -> ASTNode {
+    if !parser_expect_peek(p, TOK_IDENT) { return nil; }
+    let fn_name = p.cur_tok.lit;
+    if !parser_expect_peek(p, TOK_LPAREN) { return nil; }
+
+    let head_param: ASTNode = nil;
+    let tail_param: ASTNode = nil;
+    if !parser_peek_is(p, TOK_RPAREN) {
+        parser_next_token(p);
+        let p_name = p.cur_tok.lit;
+        let p_type = "i64";
+        if !parser_expect_peek(p, TOK_COLON) { return nil; }
+        parser_next_token(p);
+        p_type = parse_type_name(p);
+        head_param = new ASTNode {
+            kind: AST_PARAM,
+            str_val: p_name,
+            type_name: p_type,
+            left: nil, right: nil, child: nil, next: nil
+        };
+        tail_param = head_param;
+
+        while parser_peek_is(p, TOK_COMMA) {
+            parser_next_token(p);
+            parser_next_token(p);
+            let pn = p.cur_tok.lit;
+            if !parser_expect_peek(p, TOK_COLON) { return nil; }
+            parser_next_token(p);
+            let pt = parse_type_name(p);
+            let param_node = new ASTNode {
+                kind: AST_PARAM,
+                str_val: pn,
+                type_name: pt,
+                left: nil, right: nil, child: nil, next: nil
+            };
+            tail_param.next = param_node;
+            tail_param = param_node;
+        }
+    }
+    if !parser_expect_peek(p, TOK_RPAREN) { return nil; }
+
+    let ret_type = "void";
+    if parser_peek_is(p, TOK_ARROW) {
+        parser_next_token(p);
+        parser_next_token(p);
+        ret_type = parse_type_name(p);
+    }
+
+    if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+    let body = parse_block(p);
+
+    return new ASTNode {
+        kind: AST_FN_DECL,
+        str_val: fn_name,
+        type_name: ret_type,
+        left: head_param,
+        right: body,
+        child: nil, next: nil
+    };
+}
+
+fn parse_struct_or_class(p: Parser, is_class: bool) -> ASTNode {
+    if !parser_expect_peek(p, TOK_IDENT) { return nil; }
+    let type_name = p.cur_tok.lit;
+    if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+
+    let head_field: ASTNode = nil;
+    let tail_field: ASTNode = nil;
+    let deinit_block: ASTNode = nil;
+
+    parser_next_token(p);
+    while !parser_cur_is(p, TOK_RBRACE) && !parser_cur_is(p, TOK_EOF) {
+        if parser_cur_is(p, TOK_DEINIT) {
+            if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+            deinit_block = parse_block(p);
+        } else if parser_cur_is(p, TOK_IDENT) {
+            let f_name = p.cur_tok.lit;
+            if !parser_expect_peek(p, TOK_COLON) { return nil; }
+            parser_next_token(p);
+            let f_type = parse_type_name(p);
+            if parser_peek_is(p, TOK_SEMICOLON) {
+                parser_next_token(p);
+            }
+            let field_node = new ASTNode {
+                kind: AST_FIELD_DECL,
+                str_val: f_name,
+                type_name: f_type,
+                left: nil, right: nil, child: nil, next: nil
+            };
+            if head_field == nil {
+                head_field = field_node;
+                tail_field = field_node;
+            } else {
+                tail_field.next = field_node;
+                tail_field = field_node;
+            }
+        }
+        parser_next_token(p);
+    }
+
+    let k = AST_STRUCT_DECL;
+    if is_class { k = AST_CLASS_DECL; }
+
+    return new ASTNode {
+        kind: k,
+        str_val: type_name,
+        left: head_field,
+        right: deinit_block,
+        child: nil, next: nil
+    };
+}
+
+fn parse_enum_decl(p: Parser) -> ASTNode {
+    if !parser_expect_peek(p, TOK_IDENT) { return nil; }
+    let enum_name = p.cur_tok.lit;
+    if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+    let head_var: ASTNode = nil;
+    let tail_var: ASTNode = nil;
+    let tag: i64 = 0;
+    parser_next_token(p);
+    while !parser_cur_is(p, TOK_RBRACE) && !parser_cur_is(p, TOK_EOF) {
+        if parser_cur_is(p, TOK_IDENT) {
+            let v_name = p.cur_tok.lit;
+            let head_param: ASTNode = nil;
+            let tail_param: ASTNode = nil;
+            if parser_peek_is(p, TOK_LPAREN) {
+                parser_next_token(p);
+                if !parser_peek_is(p, TOK_RPAREN) {
+                    parser_next_token(p);
+                    let pt = parse_type_name(p);
+                    let param_node = new ASTNode {
+                        kind: AST_PARAM,
+                        str_val: "",
+                        type_name: pt,
+                        left: nil, right: nil, child: nil, next: nil
+                    };
+                    head_param = param_node;
+                    tail_param = param_node;
+                    while parser_peek_is(p, TOK_COMMA) {
+                        parser_next_token(p);
+                        parser_next_token(p);
+                        let pt2 = parse_type_name(p);
+                        let param_node2 = new ASTNode {
+                            kind: AST_PARAM,
+                            str_val: "",
+                            type_name: pt2,
+                            left: nil, right: nil, child: nil, next: nil
+                        };
+                        tail_param.next = param_node2;
+                        tail_param = param_node2;
+                    }
+                }
+                if !parser_expect_peek(p, TOK_RPAREN) { return nil; }
+            }
+            let v_node = new ASTNode {
+                kind: AST_ENUM_VARIANT,
+                str_val: v_name,
+                int_val: tag,
+                left: head_param,
+                right: nil, child: nil, next: nil
+            };
+            tag = tag + 1;
+            if head_var == nil {
+                head_var = v_node;
+                tail_var = v_node;
+            } else {
+                tail_var.next = v_node;
+                tail_var = v_node;
+            }
+            if parser_peek_is(p, TOK_COMMA) || parser_peek_is(p, TOK_SEMICOLON) {
+                parser_next_token(p);
+            }
+        }
+        parser_next_token(p);
+    }
+    return new ASTNode {
+        kind: AST_ENUM_DECL,
+        str_val: enum_name,
+        child: head_var,
+        left: nil, right: nil, next: nil
+    };
+}
+
+fn parse_program(p: Parser) -> ASTNode {
+    let head_decl: ASTNode = nil;
+    let tail_decl: ASTNode = nil;
+
+    while !parser_cur_is(p, TOK_EOF) {
+        let decl: ASTNode = nil;
+        if parser_cur_is(p, TOK_FN) {
+            decl = parse_fn_decl(p);
+        } else if parser_cur_is(p, TOK_STRUCT) {
+            decl = parse_struct_or_class(p, false);
+        } else if parser_cur_is(p, TOK_CLASS) {
+            decl = parse_struct_or_class(p, true);
+        } else if parser_cur_is(p, TOK_ENUM) {
+            decl = parse_enum_decl(p);
+        } else if parser_cur_is(p, TOK_IMPORT) {
+            parser_next_token(p);
+            let imp_path = p.cur_tok.lit;
+            if parser_peek_is(p, TOK_SEMICOLON) {
+                parser_next_token(p);
+            }
+            decl = new ASTNode {
+                kind: AST_IMPORT_DECL,
+                str_val: imp_path,
+                left: nil, right: nil, child: nil, next: nil
+            };
+        } else if parser_cur_is(p, TOK_LET) {
+            decl = parse_statement(p);
+        }
+        if decl != nil {
+            if head_decl == nil {
+                head_decl = decl;
+                tail_decl = decl;
+            } else {
+                tail_decl.next = decl;
+                tail_decl = decl;
+            }
+        }
+        parser_next_token(p);
+    }
+
+    return new ASTNode {
+        kind: AST_PROGRAM,
+        child: head_decl,
+        left: nil, right: nil, next: nil
+    };
+}
+
+class FileList {
+    path: string;
+    next: FileList;
+}
+
+fn file_list_has(head: FileList, path: string) -> bool {
+    let cur = head;
+    while cur != nil {
+        if str_eq(cur.path, path) { return true; }
+        cur = cur.next;
+    }
+    return false;
+}
+
+fn resolve_imports(prog: ASTNode, loaded: FileList) -> ASTNode {
+    let head_decl: ASTNode = nil;
+    let tail_decl: ASTNode = nil;
+    let cur = prog.child;
+
+    while cur != nil {
+        let next_cur = cur.next;
+        cur.next = nil;
+
+        if cur.kind == AST_IMPORT_DECL {
+            let import_path = cur.str_val;
+            if !file_list_has(loaded, import_path) {
+                let node = new FileList {
+                    path: import_path,
+                    next: loaded.next
+                };
+                loaded.next = node;
+
+                let imported_src = read_file(import_path);
+                if str_len(imported_src) > 0 {
+                    let imp_l = lexer_new(imported_src);
+                    let imp_p = parser_new(imp_l);
+                    let imp_prog = parse_program(imp_p);
+                    let resolved_imp = resolve_imports(imp_prog, loaded);
+
+                    let imp_d = resolved_imp.child;
+                    while imp_d != nil {
+                        let next_d = imp_d.next;
+                        imp_d.next = nil;
+                        if head_decl == nil {
+                            head_decl = imp_d;
+                            tail_decl = imp_d;
+                        } else {
+                            tail_decl.next = imp_d;
+                            tail_decl = imp_d;
+                        }
+                        imp_d = next_d;
+                    }
+                } else {
+                    print("[Warning] Could not read import file: ", import_path, "\n");
+                }
+            }
+        } else {
+            if head_decl == nil {
+                head_decl = cur;
+                tail_decl = cur;
+            } else {
+                tail_decl.next = cur;
+                tail_decl = cur;
+            }
+        }
+
+        cur = next_cur;
+    }
+
+    prog.child = head_decl;
+    return prog;
+}

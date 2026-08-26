@@ -1,0 +1,323 @@
+// ============================================================================
+// src/pe.gat - PE Binary Emitter
+// ============================================================================
+
+// 9. PE Binary Emitter
+// ----------------------------------------------------------------------------
+
+fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool {
+    let out_buf = bb_new(8192);
+
+    let file_align: i64 = 0x200;   // 512
+    let sec_align: i64 = 0x1000;   // 4096
+
+    // Prepare .rdata
+    let rdata = bb_new(4096);
+
+    let rdata_str_true_off = rdata.size;
+    bb_write_str(rdata, "true"); bb_write_u8(rdata, 0);
+
+    let rdata_str_false_off = rdata.size;
+    bb_write_str(rdata, "false"); bb_write_u8(rdata, 0);
+
+    let rdata_str_empty_off = rdata.size;
+    bb_write_str(rdata, ""); bb_write_u8(rdata, 0);
+
+    let sc = ir_ctx.strings_head;
+    while sc != nil {
+        sc.rdata_offset = rdata.size;
+        bb_write_str(rdata, sc.val);
+        bb_write_u8(rdata, 0);
+        sc = sc.next;
+    }
+    bb_align_up(rdata, 8);
+
+    // IAT
+    let iat_start = rdata.size;
+    let num_imports: i64 = 11;
+    let i: i64 = 0;
+    while i <= num_imports {
+        bb_write_u64(rdata, 0);
+        i = i + 1;
+    }
+
+    // ILT
+    let ilt_start = rdata.size;
+    i = 0;
+    while i <= num_imports {
+        bb_write_u64(rdata, 0);
+        i = i + 1;
+    }
+
+    // Import Directory Descriptor
+    let import_dir_offset = rdata.size;
+    bb_write_zeros(rdata, 40);
+
+    // DLL name string
+    let dll_name_offset = rdata.size;
+    bb_write_str(rdata, "KERNEL32.dll"); bb_write_u8(rdata, 0);
+    bb_align_up(rdata, 2);
+
+    // Hint/Name Table
+    let hn_offsets = bb_new(128);
+    let imp_names = "ExitProcess,GetStdHandle,WriteFile,GetProcessHeap,HeapAlloc,HeapFree,CreateFileA,ReadFile,CloseHandle,GetFileSizeEx,GetCommandLineA,";
+    let imp_start = 0;
+    i = 0;
+    while i < str_len(imp_names) {
+        if str_char(imp_names, i) == 44 { // ','
+            let name = str_sub(imp_names, imp_start, i - imp_start);
+            bb_write_u64(hn_offsets, rdata.size);
+            bb_write_u16(rdata, 0); // Hint
+            bb_write_str(rdata, name);
+            bb_write_u8(rdata, 0);
+            bb_align_up(rdata, 2);
+            imp_start = i + 1;
+        }
+        i = i + 1;
+    }
+
+    let header_size = 0x400;
+    let text_rva = sec_align;
+    let text_raw_size = align_val(cg.code.size, file_align);
+    let text_size = align_val(cg.code.size, sec_align);
+
+    let rdata_rva = text_rva + text_size;
+    let rdata_raw_size = align_val(rdata.size, file_align);
+    let rdata_size = align_val(rdata.size, sec_align);
+
+    let image_size = rdata_rva + rdata_size;
+
+    // Patch RVAs: ILT & IAT
+    i = 0;
+    while i < num_imports {
+        let p_hn: raw i8 = hn_offsets.data;
+        let b0 = p_hn[i * 8]; if b0 < 0 { b0 = b0 + 256; }
+        let b1 = p_hn[i * 8 + 1]; if b1 < 0 { b1 = b1 + 256; }
+        let b2 = p_hn[i * 8 + 2]; if b2 < 0 { b2 = b2 + 256; }
+        let b3 = p_hn[i * 8 + 3]; if b3 < 0 { b3 = b3 + 256; }
+        let hn_val = b0 + b1 * 256 + b2 * 65536 + b3 * 16777216;
+        let rva_val = rdata_rva + hn_val;
+
+        let p_ilt: raw i8 = rdata.data;
+        let ilt_pos = ilt_start + i * 8;
+        p_ilt[ilt_pos] = rva_val;
+        p_ilt[ilt_pos + 1] = rva_val / 256;
+        p_ilt[ilt_pos + 2] = rva_val / 65536;
+        p_ilt[ilt_pos + 3] = (rva_val / 65536) / 256;
+
+        let iat_pos = iat_start + i * 8;
+        p_ilt[iat_pos] = rva_val;
+        p_ilt[iat_pos + 1] = rva_val / 256;
+        p_ilt[iat_pos + 2] = rva_val / 65536;
+        p_ilt[iat_pos + 3] = (rva_val / 65536) / 256;
+
+        i = i + 1;
+    }
+
+    // Patch Descriptor
+    let p_desc: raw i8 = rdata.data;
+    let d_ilt = rdata_rva + ilt_start;
+    p_desc[import_dir_offset + 0] = d_ilt;
+    p_desc[import_dir_offset + 1] = d_ilt / 256;
+    p_desc[import_dir_offset + 2] = d_ilt / 65536;
+    p_desc[import_dir_offset + 3] = (d_ilt / 65536) / 256;
+
+    let d_name = rdata_rva + dll_name_offset;
+    p_desc[import_dir_offset + 12] = d_name;
+    p_desc[import_dir_offset + 13] = d_name / 256;
+    p_desc[import_dir_offset + 14] = d_name / 65536;
+    p_desc[import_dir_offset + 15] = (d_name / 65536) / 256;
+
+    let d_iat = rdata_rva + iat_start;
+    p_desc[import_dir_offset + 16] = d_iat;
+    p_desc[import_dir_offset + 17] = d_iat / 256;
+    p_desc[import_dir_offset + 18] = d_iat / 65536;
+    p_desc[import_dir_offset + 19] = (d_iat / 65536) / 256;
+
+    // Resolve Relocations
+    let rel = cg.relocs_head;
+    while rel != nil {
+        let p_code: raw i8 = cg.code.data;
+        let target_rva: i64 = 0;
+
+        if rel.kind == 1 { // RIP relative (within .text or to .rdata)
+            if str_eq(rel.sym, "str_true_const") {
+                target_rva = rdata_rva + rdata_str_true_off;
+            } else if str_eq(rel.sym, "str_false_const") {
+                target_rva = rdata_rva + rdata_str_false_off;
+            } else if str_eq(rel.sym, "str_empty_const") {
+                target_rva = rdata_rva + rdata_str_empty_off;
+            } else {
+                let sym_cur = cg.syms_head;
+                let found: i64 = 0;
+                while sym_cur != nil {
+                    if str_eq(sym_cur.name, rel.sym) {
+                        target_rva = text_rva + sym_cur.offset;
+                        found = 1;
+                    }
+                    sym_cur = sym_cur.next;
+                }
+                if found == 0 {
+                    let sc_cur = ir_ctx.strings_head;
+                    while sc_cur != nil {
+                        if str_eq(sc_cur.label, rel.sym) {
+                            target_rva = rdata_rva + sc_cur.rdata_offset;
+                        }
+                        sc_cur = sc_cur.next;
+                    }
+                }
+            }
+
+            let from_rva = text_rva + rel.offset + 4;
+            let diff = target_rva - from_rva;
+            let u_diff = diff;
+            if u_diff < 0 {
+                u_diff = u_diff + 65536 * 65536;
+            }
+            p_code[rel.offset + 0] = u_diff;
+            p_code[rel.offset + 1] = u_diff / 256;
+            p_code[rel.offset + 2] = u_diff / 65536;
+            p_code[rel.offset + 3] = (u_diff / 65536) / 256;
+        } else if rel.kind == 2 { // IAT relative
+            let imp_idx = 0;
+            if str_eq(rel.sym, "__iat_ExitProcess") { imp_idx = 0; }
+            else if str_eq(rel.sym, "__iat_GetStdHandle") { imp_idx = 1; }
+            else if str_eq(rel.sym, "__iat_WriteFile") { imp_idx = 2; }
+            else if str_eq(rel.sym, "__iat_GetProcessHeap") { imp_idx = 3; }
+            else if str_eq(rel.sym, "__iat_HeapAlloc") { imp_idx = 4; }
+            else if str_eq(rel.sym, "__iat_HeapFree") { imp_idx = 5; }
+            else if str_eq(rel.sym, "__iat_CreateFileA") { imp_idx = 6; }
+            else if str_eq(rel.sym, "__iat_ReadFile") { imp_idx = 7; }
+            else if str_eq(rel.sym, "__iat_CloseHandle") { imp_idx = 8; }
+            else if str_eq(rel.sym, "__iat_GetFileSizeEx") { imp_idx = 9; }
+            else if str_eq(rel.sym, "__iat_GetCommandLineA") { imp_idx = 10; }
+            let iat_slot_rva = rdata_rva + iat_start + imp_idx * 8;
+            let from_rva = text_rva + rel.offset + 4;
+            let diff = iat_slot_rva - from_rva;
+            let u_diff = diff;
+            if u_diff < 0 {
+                u_diff = u_diff + 65536 * 65536;
+            }
+            p_code[rel.offset + 0] = u_diff;
+            p_code[rel.offset + 1] = u_diff / 256;
+            p_code[rel.offset + 2] = u_diff / 65536;
+            p_code[rel.offset + 3] = (u_diff / 65536) / 256;
+        }
+
+        rel = rel.next;
+    }
+    let main_offset: i64 = 0;
+    let sym_cur = cg.syms_head;
+    while sym_cur != nil {
+        if str_eq(sym_cur.name, "main") {
+            main_offset = sym_cur.offset;
+        }
+        sym_cur = sym_cur.next;
+    }
+
+    // DOS Header (64 bytes)
+    bb_write_u8(out_buf, 77); bb_write_u8(out_buf, 90); // 'M', 'Z'
+    bb_write_zeros(out_buf, 58);
+    bb_write_u32(out_buf, 0x80);
+
+    // DOS Stub (64 bytes)
+    bb_write_zeros(out_buf, 64);
+
+    // PE Signature (4 bytes)
+    bb_write_u8(out_buf, 80); bb_write_u8(out_buf, 69); bb_write_u8(out_buf, 0); bb_write_u8(out_buf, 0);
+
+    // COFF Header (20 bytes)
+    bb_write_u16(out_buf, 0x8664); // AMD64
+    bb_write_u16(out_buf, 2);      // 2 sections
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u16(out_buf, 0xF0);
+    bb_write_u16(out_buf, 0x0022);
+
+    // Optional Header Standard Fields
+    bb_write_u16(out_buf, 0x020B);              // PE32+
+    bb_write_u8(out_buf, 1); bb_write_u8(out_buf, 0);
+    bb_write_u32(out_buf, text_raw_size);
+    bb_write_u32(out_buf, rdata_raw_size);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, text_rva); // Entry point (__gat_entry trampoline)
+    bb_write_u32(out_buf, text_rva);
+
+    // Windows Specific Fields
+    bb_write_u64(out_buf, 0x0000000140000000);
+    bb_write_u32(out_buf, sec_align);
+    bb_write_u32(out_buf, file_align);
+    bb_write_u16(out_buf, 6); bb_write_u16(out_buf, 0);
+    bb_write_u16(out_buf, 0); bb_write_u16(out_buf, 0);
+    bb_write_u16(out_buf, 6); bb_write_u16(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, image_size);
+    bb_write_u32(out_buf, header_size);
+    bb_write_u32(out_buf, 0);
+    bb_write_u16(out_buf, 3); // Console
+    bb_write_u16(out_buf, 0x8160);
+    bb_write_u64(out_buf, 0x800000);
+    bb_write_u64(out_buf, 0x800000);
+    bb_write_u64(out_buf, 0x100000);
+    bb_write_u64(out_buf, 0x1000);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 16);
+
+    // Data Directories
+    bb_write_u64(out_buf, 0); // Export
+    bb_write_u32(out_buf, rdata_rva + import_dir_offset); // Import
+    bb_write_u32(out_buf, 40);
+    let dir_idx = 2;
+    while dir_idx < 12 {
+        bb_write_u64(out_buf, 0);
+        dir_idx = dir_idx + 1;
+    }
+    bb_write_u32(out_buf, rdata_rva + iat_start); // IAT
+    bb_write_u32(out_buf, (num_imports + 1) * 8);
+    bb_write_u64(out_buf, 0);
+    bb_write_u64(out_buf, 0);
+    bb_write_u64(out_buf, 0);
+
+    // Section Headers
+    bb_write_str(out_buf, ".text"); bb_write_zeros(out_buf, 3);
+    bb_write_u32(out_buf, cg.code.size);
+    bb_write_u32(out_buf, text_rva);
+    bb_write_u32(out_buf, text_raw_size);
+    bb_write_u32(out_buf, header_size);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u16(out_buf, 0);
+    bb_write_u16(out_buf, 0);
+    bb_write_u32(out_buf, 0x60000020);
+
+    bb_write_str(out_buf, ".rdata"); bb_write_zeros(out_buf, 2);
+    bb_write_u32(out_buf, rdata.size);
+    bb_write_u32(out_buf, rdata_rva);
+    bb_write_u32(out_buf, rdata_raw_size);
+    bb_write_u32(out_buf, header_size + text_raw_size);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u16(out_buf, 0);
+    bb_write_u16(out_buf, 0);
+    bb_write_u32(out_buf, 0xC0000040);
+
+    while out_buf.size < header_size {
+        bb_write_u8(out_buf, 0);
+    }
+    bb_write_bytes(out_buf, cg.code.data, cg.code.size);
+    while out_buf.size < header_size + text_raw_size {
+        bb_write_u8(out_buf, 0);
+    }
+    bb_write_bytes(out_buf, rdata.data, rdata.size);
+    while out_buf.size < header_size + text_raw_size + rdata_raw_size {
+        bb_write_u8(out_buf, 0);
+    }
+
+    let written = write_file(out_path, out_buf.data, out_buf.size);
+    if written > 0 {
+        return true;
+    }
+    return false;
+}
+
