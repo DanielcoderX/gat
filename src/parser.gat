@@ -69,11 +69,169 @@ fn get_precedence(kind: i64) -> i64 {
 }
 
 fn parse_type_name(p: Parser) -> string {
+    let t_name = p.cur_tok.lit;
     if parser_cur_is(p, TOK_RAW) {
         parser_next_token(p);
-        return str_concat("raw ", p.cur_tok.lit);
+        t_name = str_concat("raw ", p.cur_tok.lit);
     }
-    return p.cur_tok.lit;
+    if parser_peek_is(p, TOK_LT) {
+        parser_next_token(p); // '<'
+        while !parser_cur_is(p, TOK_GT) && !parser_cur_is(p, TOK_EOF) {
+            parser_next_token(p);
+        }
+    }
+    return t_name;
+}
+
+fn str_has_interpolation(raw_str: string) -> bool {
+    let len = str_len(raw_str);
+    let i = 0;
+    while i < len {
+        if str_char(raw_str, i) == 123 { // '{'
+            let j = i + 1;
+            while j < len {
+                if str_char(raw_str, j) == 125 { // '}'
+                    return true;
+                }
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn make_str_concat(s1: ASTNode, s2: ASTNode) -> ASTNode {
+    let s1_arg = new ASTNode {
+        kind: s1.kind,
+        str_val: s1.str_val,
+        int_val: s1.int_val,
+        type_name: s1.type_name,
+        type_kind: s1.type_kind,
+        left: s1.left,
+        right: s1.right,
+        child: s1.child,
+        next: s2
+    };
+    return new ASTNode {
+        kind: AST_CALL,
+        str_val: "str_concat",
+        type_name: "string",
+        type_kind: TYPE_STRING,
+        left: nil, right: nil,
+        child: s1_arg,
+        next: nil
+    };
+}
+
+fn make_string_wrapper(expr: ASTNode) -> ASTNode {
+    if expr.kind == AST_STR_LIT {
+        return expr;
+    }
+    let arg_copy = new ASTNode {
+        kind: expr.kind,
+        str_val: expr.str_val,
+        int_val: expr.int_val,
+        type_name: expr.type_name,
+        type_kind: expr.type_kind,
+        left: expr.left,
+        right: expr.right,
+        child: expr.child,
+        next: nil
+    };
+    return new ASTNode {
+        kind: AST_CALL,
+        str_val: "str_from_int",
+        type_name: "string",
+        type_kind: TYPE_STRING,
+        left: nil, right: nil,
+        child: arg_copy,
+        next: nil
+    };
+}
+
+fn parse_interpolated_string(p: Parser, raw_str: string) -> ASTNode {
+    let len = str_len(raw_str);
+    let i = 0;
+    let last_pos = 0;
+    let result_node: ASTNode = nil;
+
+    while i < len {
+        if str_char(raw_str, i) == 123 { // '{'
+            let text_len = i - last_pos;
+            if text_len > 0 {
+                let text_part = str_sub(raw_str, last_pos, text_len);
+                let lit_node = new ASTNode {
+                    kind: AST_STR_LIT,
+                    str_val: text_part,
+                    type_kind: TYPE_STRING,
+                    type_name: "string",
+                    left: nil, right: nil, child: nil, next: nil
+                };
+                if result_node == nil {
+                    result_node = lit_node;
+                } else {
+                    result_node = make_str_concat(result_node, lit_node);
+                }
+            }
+
+            let expr_start = i + 1;
+            i = i + 1;
+            while i < len && str_char(raw_str, i) != 125 { // '}'
+                i = i + 1;
+            }
+            let expr_len = i - expr_start;
+            let expr_code = str_sub(raw_str, expr_start, expr_len);
+            let sub_l = lexer_new(expr_code);
+            let sub_p = parser_new(sub_l);
+            let expr_ast = parse_expression(sub_p, PREC_LOWEST);
+            let str_expr = new ASTNode {
+                kind: AST_INTERP_EXPR,
+                str_val: "",
+                int_val: 0,
+                type_kind: TYPE_STRING,
+                type_name: "string",
+                left: expr_ast,
+                right: nil, child: nil, next: nil
+            };
+
+            if result_node == nil {
+                result_node = str_expr;
+            } else {
+                result_node = make_str_concat(result_node, str_expr);
+            }
+            last_pos = i + 1;
+        }
+        i = i + 1;
+    }
+
+    let rem_len = len - last_pos;
+    if rem_len > 0 {
+        let rem_text = str_sub(raw_str, last_pos, rem_len);
+        let lit_node = new ASTNode {
+            kind: AST_STR_LIT,
+            str_val: rem_text,
+            type_kind: TYPE_STRING,
+            type_name: "string",
+            left: nil, right: nil, child: nil, next: nil
+        };
+        if result_node == nil {
+            result_node = lit_node;
+        } else {
+            result_node = make_str_concat(result_node, lit_node);
+        }
+    }
+
+    if result_node == nil {
+        return new ASTNode {
+            kind: AST_STR_LIT,
+            str_val: "",
+            type_kind: TYPE_STRING,
+            type_name: "string",
+            left: nil, right: nil, child: nil, next: nil
+        };
+    }
+    return result_node;
 }
 
 fn parse_expression(p: Parser, prec: i64) -> ASTNode {
@@ -90,13 +248,17 @@ fn parse_expression(p: Parser, prec: i64) -> ASTNode {
             left: nil, right: nil, child: nil, next: nil
         };
     } else if parser_cur_is(p, TOK_STRING) {
-        left = new ASTNode {
-            kind: AST_STR_LIT,
-            str_val: p.cur_tok.lit,
-            type_kind: TYPE_STRING,
-            type_name: "string",
-            left: nil, right: nil, child: nil, next: nil
-        };
+        if str_has_interpolation(p.cur_tok.lit) {
+            left = parse_interpolated_string(p, p.cur_tok.lit);
+        } else {
+            left = new ASTNode {
+                kind: AST_STR_LIT,
+                str_val: p.cur_tok.lit,
+                type_kind: TYPE_STRING,
+                type_name: "string",
+                left: nil, right: nil, child: nil, next: nil
+            };
+        }
     } else if parser_cur_is(p, TOK_TRUE) || parser_cur_is(p, TOK_FALSE) {
         left = new ASTNode {
             kind: AST_BOOL_LIT,
@@ -153,6 +315,12 @@ fn parse_expression(p: Parser, prec: i64) -> ASTNode {
     } else if parser_cur_is(p, TOK_NEW) {
         parser_next_token(p);
         let type_name = p.cur_tok.lit;
+        if parser_peek_is(p, TOK_LT) {
+            parser_next_token(p);
+            while !parser_cur_is(p, TOK_GT) && !parser_cur_is(p, TOK_EOF) {
+                parser_next_token(p);
+            }
+        }
         if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
         let head_init: ASTNode = nil;
         let tail_init: ASTNode = nil;
@@ -400,6 +568,10 @@ fn parse_statement(p: Parser) -> ASTNode {
         };
     }
 
+    if parser_cur_is(p, TOK_FOR) {
+        return parse_for_stmt(p);
+    }
+
     // Expression statement or Assignment
     let expr = parse_expression(p, PREC_LOWEST);
     if parser_peek_is(p, TOK_ASSIGN) {
@@ -425,6 +597,234 @@ fn parse_statement(p: Parser) -> ASTNode {
         left: expr,
         right: nil, child: nil, next: nil
     };
+}
+
+fn parse_for_stmt(p: Parser) -> ASTNode {
+    if !parser_expect_peek(p, TOK_IDENT) { return nil; }
+    let var_name = p.cur_tok.lit;
+    if !parser_expect_peek(p, TOK_IN) { return nil; }
+    parser_next_token(p);
+    let start_expr = parse_expression(p, PREC_LOWEST);
+
+    if parser_peek_is(p, TOK_DOTDOT) {
+        parser_next_token(p);
+        parser_next_token(p);
+        let end_expr = parse_expression(p, PREC_LOWEST);
+        if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+        let body_block = parse_block(p);
+
+        // 1. let var_name = start_expr;
+        let init_stmt = new ASTNode {
+            kind: AST_LET_STMT,
+            str_val: var_name,
+            type_name: "i64",
+            left: start_expr,
+            right: nil, child: nil, next: nil
+        };
+
+        // 2. cond: var_name < end_expr
+        let cond_expr = new ASTNode {
+            kind: AST_BIN_OP,
+            str_val: "<",
+            int_val: 0,
+            left: new ASTNode {
+                kind: AST_IDENT,
+                str_val: var_name,
+                int_val: 0,
+                left: nil, right: nil, child: nil, next: nil
+            },
+            right: end_expr,
+            child: nil, next: nil
+        };
+
+        // 3. increment: var_name = var_name + 1
+        let inc_stmt = new ASTNode {
+            kind: AST_ASSIGN_STMT,
+            str_val: "",
+            int_val: 0,
+            left: new ASTNode {
+                kind: AST_IDENT,
+                str_val: var_name,
+                int_val: 0,
+                left: nil, right: nil, child: nil, next: nil
+            },
+            right: new ASTNode {
+                kind: AST_BIN_OP,
+                str_val: "+",
+                int_val: 0,
+                left: new ASTNode {
+                    kind: AST_IDENT,
+                    str_val: var_name,
+                    int_val: 0,
+                    left: nil, right: nil, child: nil, next: nil
+                },
+                right: new ASTNode {
+                    kind: AST_INT_LIT,
+                    str_val: "1",
+                    int_val: 1,
+                    left: nil, right: nil, child: nil, next: nil
+                },
+                child: nil, next: nil
+            },
+            child: nil, next: nil
+        };
+
+        // Append inc_stmt to body_block.child
+        if body_block.child == nil {
+            body_block.child = inc_stmt;
+        } else {
+            let cur = body_block.child;
+            while cur.next != nil {
+                cur = cur.next;
+            }
+            cur.next = inc_stmt;
+        }
+
+        // 4. while loop
+        let while_stmt = new ASTNode {
+            kind: AST_WHILE_STMT,
+            str_val: "",
+            int_val: 0,
+            left: cond_expr,
+            right: body_block,
+            child: nil, next: nil
+        };
+
+        init_stmt.next = while_stmt;
+        return new ASTNode {
+            kind: AST_BLOCK,
+            str_val: "",
+            int_val: 0,
+            left: nil, right: nil,
+            child: init_stmt,
+            next: nil
+        };
+    } else {
+        // for item in coll
+        let coll_expr = start_expr;
+        if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
+        let body_block = parse_block(p);
+
+        let idx_var = str_concat("__idx_", var_name);
+
+        // 1. let __idx_var = 0;
+        let init_idx = new ASTNode {
+            kind: AST_LET_STMT,
+            str_val: idx_var,
+            type_name: "i64",
+            left: new ASTNode {
+                kind: AST_INT_LIT,
+                str_val: "0",
+                int_val: 0,
+                left: nil, right: nil, child: nil, next: nil
+            },
+            right: nil, child: nil, next: nil
+        };
+
+        // 2. cond: __idx_var < coll.len
+        let cond_expr = new ASTNode {
+            kind: AST_BIN_OP,
+            str_val: "<",
+            int_val: 0,
+            left: new ASTNode {
+                kind: AST_IDENT,
+                str_val: idx_var,
+                int_val: 0,
+                left: nil, right: nil, child: nil, next: nil
+            },
+            right: new ASTNode {
+                kind: AST_MEMBER,
+                str_val: "len",
+                int_val: 0,
+                left: coll_expr,
+                right: nil, child: nil, next: nil
+            },
+            child: nil, next: nil
+        };
+
+        // 3. let item = coll[__idx_var];
+        let item_bind = new ASTNode {
+            kind: AST_LET_STMT,
+            str_val: var_name,
+            type_name: "",
+            left: new ASTNode {
+                kind: AST_INDEX,
+                str_val: "",
+                int_val: 0,
+                left: coll_expr,
+                right: new ASTNode {
+                    kind: AST_IDENT,
+                    str_val: idx_var,
+                    int_val: 0,
+                    left: nil, right: nil, child: nil, next: nil
+                },
+                child: nil, next: nil
+            },
+            right: nil, child: nil, next: nil
+        };
+
+        // 4. inc: __idx_var = __idx_var + 1
+        let inc_stmt = new ASTNode {
+            kind: AST_ASSIGN_STMT,
+            str_val: "",
+            int_val: 0,
+            left: new ASTNode {
+                kind: AST_IDENT,
+                str_val: idx_var,
+                int_val: 0,
+                left: nil, right: nil, child: nil, next: nil
+            },
+            right: new ASTNode {
+                kind: AST_BIN_OP,
+                str_val: "+",
+                int_val: 0,
+                left: new ASTNode {
+                    kind: AST_IDENT,
+                    str_val: idx_var,
+                    int_val: 0,
+                    left: nil, right: nil, child: nil, next: nil
+                },
+                right: new ASTNode {
+                    kind: AST_INT_LIT,
+                    str_val: "1",
+                    int_val: 1,
+                    left: nil, right: nil, child: nil, next: nil
+                },
+                child: nil, next: nil
+            },
+            child: nil, next: nil
+        };
+
+        // Prepend item_bind to body_block.child
+        item_bind.next = body_block.child;
+        body_block.child = item_bind;
+
+        // Append inc_stmt to end of body_block.child
+        let cur = body_block.child;
+        while cur.next != nil {
+            cur = cur.next;
+        }
+        cur.next = inc_stmt;
+
+        let while_stmt = new ASTNode {
+            kind: AST_WHILE_STMT,
+            str_val: "",
+            int_val: 0,
+            left: cond_expr,
+            right: body_block,
+            child: nil, next: nil
+        };
+
+        init_idx.next = while_stmt;
+        return new ASTNode {
+            kind: AST_BLOCK,
+            str_val: "",
+            int_val: 0,
+            left: nil, right: nil,
+            child: init_idx,
+            next: nil
+        };
+    }
 }
 
 fn parse_match_stmt(p: Parser) -> ASTNode {
@@ -511,6 +911,12 @@ fn parse_match_stmt(p: Parser) -> ASTNode {
 fn parse_fn_decl(p: Parser) -> ASTNode {
     if !parser_expect_peek(p, TOK_IDENT) { return nil; }
     let fn_name = p.cur_tok.lit;
+    if parser_peek_is(p, TOK_LT) {
+        parser_next_token(p);
+        while !parser_cur_is(p, TOK_GT) && !parser_cur_is(p, TOK_EOF) {
+            parser_next_token(p);
+        }
+    }
     if !parser_expect_peek(p, TOK_LPAREN) { return nil; }
 
     let head_param: ASTNode = nil;
@@ -572,6 +978,12 @@ fn parse_fn_decl(p: Parser) -> ASTNode {
 fn parse_struct_or_class(p: Parser, is_class: bool) -> ASTNode {
     if !parser_expect_peek(p, TOK_IDENT) { return nil; }
     let type_name = p.cur_tok.lit;
+    if parser_peek_is(p, TOK_LT) {
+        parser_next_token(p);
+        while !parser_cur_is(p, TOK_GT) && !parser_cur_is(p, TOK_EOF) {
+            parser_next_token(p);
+        }
+    }
     if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
 
     let head_field: ASTNode = nil;
@@ -623,6 +1035,12 @@ fn parse_struct_or_class(p: Parser, is_class: bool) -> ASTNode {
 fn parse_enum_decl(p: Parser) -> ASTNode {
     if !parser_expect_peek(p, TOK_IDENT) { return nil; }
     let enum_name = p.cur_tok.lit;
+    if parser_peek_is(p, TOK_LT) {
+        parser_next_token(p);
+        while !parser_cur_is(p, TOK_GT) && !parser_cur_is(p, TOK_EOF) {
+            parser_next_token(p);
+        }
+    }
     if !parser_expect_peek(p, TOK_LBRACE) { return nil; }
     let head_var: ASTNode = nil;
     let tail_var: ASTNode = nil;

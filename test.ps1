@@ -31,7 +31,10 @@ $testCases = @(
     @{ Name = "Enum & Match & Array"; File = "examples/test_enum_match.gat"; Args = @(); Expect = "Array[0]: 10, Array[2]: 30"; ExpectedCode = 0 },
     @{ Name = "GatMin Suite"; File = "examples/test_gatmin.gat"; Args = @("alpha", "beta"); Expect = "Buf char 0: 71, char 1: 65, char 2: 84"; ExpectedCode = 0 },
     @{ Name = "Multi-Module Import"; File = "examples/test_import.gat"; Args = @(); Expect = "Sum: 13, Prod: 42"; ExpectedCode = 0 },
-    @{ Name = "Standard Library (std/)"; File = "examples/test_std.gat"; Args = @(); Expect = "All standard library tests passed!"; ExpectedCode = 0 }
+    @{ Name = "Standard Library (std/)"; File = "examples/test_std.gat"; Args = @(); Expect = "All standard library tests passed!"; ExpectedCode = 0 },
+    @{ Name = "For Loops"; File = "examples/test_for.gat"; Args = @(); Expect = "For loop test passed!"; ExpectedCode = 0 },
+    @{ Name = "String Interpolation"; File = "examples/test_interp.gat"; Args = @(); Expect = "String interpolation test passed!"; ExpectedCode = 0 },
+    @{ Name = "Generics & Parametric Types"; File = "examples/test_generics.gat"; Args = @(); Expect = "Generics test passed!"; ExpectedCode = 0 }
 )
 
 $passed = 0

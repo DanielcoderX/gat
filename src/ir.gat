@@ -217,6 +217,9 @@ fn get_const_val(name: string) -> i64 {
     if str_eq(name, "TOK_ENUM") { return 56; }
     if str_eq(name, "TOK_MATCH") { return 57; }
     if str_eq(name, "TOK_FAT_ARROW") { return 58; }
+    if str_eq(name, "TOK_FOR") { return 59; }
+    if str_eq(name, "TOK_IN") { return 60; }
+    if str_eq(name, "TOK_DOTDOT") { return 61; }
 
     if str_eq(name, "AST_PROGRAM") { return 1; }
     if str_eq(name, "AST_FN_DECL") { return 2; }
@@ -248,6 +251,7 @@ fn get_const_val(name: string) -> i64 {
     if str_eq(name, "AST_NEW") { return 30; }
     if str_eq(name, "AST_FIELD_INIT") { return 31; }
     if str_eq(name, "AST_ARRAY_LIT") { return 32; }
+    if str_eq(name, "AST_INTERP_EXPR") { return 33; }
 
     if str_eq(name, "IR_OP_ALLOC_HEAP") { return 1; }
     if str_eq(name, "IR_OP_ALLOC_STACK") { return 2; }
@@ -549,6 +553,19 @@ fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
         return 0;
     }
 
+    if expr.kind == AST_INTERP_EXPR {
+        let v = ir_build_expr(ctx, expr.left);
+        let type_n = ir_get_expr_type(ctx, expr.left);
+        if expr.left.kind == AST_STR_LIT || str_eq(type_n, "string") {
+            return v;
+        }
+        let dest = ir_alloc_val(ctx);
+        let inst = ir_emit(ctx, IR_OP_CALL, dest, v);
+        inst.str_val = "str_from_int";
+        inst.arg_count = 1;
+        return dest;
+    }
+
     return 0;
 }
 
@@ -609,6 +626,11 @@ fn ir_build_stmt(ctx: IRContext, stmt: ASTNode) {
             ret_val = ir_build_expr(ctx, stmt.left);
         }
         ir_emit(ctx, IR_OP_RETURN, 0, ret_val);
+        return;
+    }
+
+    if stmt.kind == AST_BLOCK {
+        ir_build_block(ctx, stmt);
         return;
     }
 

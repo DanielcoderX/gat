@@ -56,6 +56,9 @@ let TOK_ARROW: i64 = 55;
 let TOK_ENUM: i64 = 56;
 let TOK_MATCH: i64 = 57;
 let TOK_FAT_ARROW: i64 = 58;
+let TOK_FOR: i64 = 59;
+let TOK_IN: i64 = 60;
+let TOK_DOTDOT: i64 = 61;
 
 // AST Node Kinds
 let AST_PROGRAM: i64 = 1;
@@ -89,6 +92,7 @@ let AST_INDEX: i64 = 29;
 let AST_NEW: i64 = 30;
 let AST_FIELD_INIT: i64 = 31;
 let AST_ARRAY_LIT: i64 = 32;
+let AST_INTERP_EXPR: i64 = 33;
 
 // IR Opcode Kinds
 let IR_OP_ALLOC_HEAP: i64 = 1;

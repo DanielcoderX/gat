@@ -1,0 +1,26 @@
+// Test For Loops
+fn main() -> i64 {
+    let sum: i64 = 0;
+    for i in 0..10 {
+        sum = sum + i;
+    }
+    if sum != 45 {
+        print("[FAIL] Range for loop failed: expected 45, got ", sum, "\n");
+        return 1;
+    }
+
+    let nested_sum: i64 = 0;
+    for x in 1..4 {
+        for y in 1..4 {
+            nested_sum = nested_sum + x * y;
+        }
+    }
+    // (1+2+3) * (1+2+3) = 6 * 6 = 36
+    if nested_sum != 36 {
+        print("[FAIL] Nested for loop failed: expected 36, got ", nested_sum, "\n");
+        return 1;
+    }
+
+    print("[PASS] For loop test passed!\n");
+    return 0;
+}

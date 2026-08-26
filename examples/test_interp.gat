@@ -1,0 +1,23 @@
+// Test String Interpolation
+fn main() -> i64 {
+    let name = "Gat";
+    let version: i64 = 2;
+    let s = "Hello from {name} version {version}!";
+    print(s, "\n");
+
+    if !str_eq(s, "Hello from Gat version 2!") {
+        print("[FAIL] String interpolation mismatch: ", s, "\n");
+        return 1;
+    }
+
+    let a: i64 = 15;
+    let b: i64 = 25;
+    let sum_str = "Sum is: {a + b}";
+    if !str_eq(sum_str, "Sum is: 40") {
+        print("[FAIL] Math expression in interpolation failed: ", sum_str, "\n");
+        return 1;
+    }
+
+    print("[PASS] String interpolation test passed!\n");
+    return 0;
+}

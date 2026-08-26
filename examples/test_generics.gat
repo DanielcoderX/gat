@@ -1,0 +1,50 @@
+// Test Generics Syntax and Layout
+
+class Pair<T, U> {
+    first: T;
+    second: U;
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E)
+}
+
+fn make_pair<T, U>(a: T, b: U) -> Pair<T, U> {
+    return new Pair<T, U> {
+        first: a,
+        second: b
+    };
+}
+
+fn main() -> i64 {
+    let p = make_pair(123, "generic success");
+    if p.first != 123 {
+        print("[FAIL] Generic struct field mismatch: ", p.first, "\n");
+        return 1;
+    }
+    if !str_eq(p.second, "generic success") {
+        print("[FAIL] Generic struct string field mismatch: ", p.second, "\n");
+        return 1;
+    }
+
+    let ok_res = Result.Ok(999);
+    let matched_val: i64 = 0;
+    match ok_res {
+        Result.Ok(val) => {
+            matched_val = val;
+        },
+        Result.Err(err) => {
+            print("[FAIL] Expected Ok, got Err\n");
+            return 1;
+        }
+    }
+
+    if matched_val != 999 {
+        print("[FAIL] Generic enum payload mismatch: ", matched_val, "\n");
+        return 1;
+    }
+
+    print("[PASS] Generics test passed!\n");
+    return 0;
+}

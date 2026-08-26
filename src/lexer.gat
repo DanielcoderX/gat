@@ -117,6 +117,8 @@ fn lookup_keyword(ident: string) -> i64 {
     if str_eq(ident, "true") { return TOK_TRUE; }
     if str_eq(ident, "false") { return TOK_FALSE; }
     if str_eq(ident, "import") { return TOK_IMPORT; }
+    if str_eq(ident, "for") { return TOK_FOR; }
+    if str_eq(ident, "in") { return TOK_IN; }
     return TOK_IDENT;
 }
 
@@ -150,7 +152,16 @@ fn lexer_next_token(l: Lexer) -> Token {
     if l.ch == 42 { tok.kind = TOK_STAR; tok.lit = "*"; lexer_read_char(l); return tok; }
     if l.ch == 47 { tok.kind = TOK_SLASH; tok.lit = "/"; lexer_read_char(l); return tok; }
     if l.ch == 37 { tok.kind = TOK_PERCENT; tok.lit = "%"; lexer_read_char(l); return tok; }
-    if l.ch == 46 { tok.kind = TOK_DOT; tok.lit = "."; lexer_read_char(l); return tok; }
+    if l.ch == 46 {
+        if lexer_peek_char(l) == 46 {
+            lexer_read_char(l);
+            lexer_read_char(l);
+            tok.kind = TOK_DOTDOT;
+            tok.lit = "..";
+            return tok;
+        }
+        tok.kind = TOK_DOT; tok.lit = "."; lexer_read_char(l); return tok;
+    }
     if l.ch == 44 { tok.kind = TOK_COMMA; tok.lit = ","; lexer_read_char(l); return tok; }
     if l.ch == 58 { tok.kind = TOK_COLON; tok.lit = ":"; lexer_read_char(l); return tok; }
     if l.ch == 59 { tok.kind = TOK_SEMICOLON; tok.lit = ";"; lexer_read_char(l); return tok; }
