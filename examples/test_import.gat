@@ -1,0 +1,11 @@
+import "examples/math_lib.gat";
+
+fn main() -> i64 {
+    print("=== Multi-Module Import Test ===\n");
+    let res = math_calc(7, 6);
+    print("Sum: ", res.sum, ", Prod: ", res.prod, "\n");
+    let sum2 = add_nums(100, 200);
+    print("Sum2: ", sum2, "\n");
+    print("Import test passed!\n");
+    return 0;
+}

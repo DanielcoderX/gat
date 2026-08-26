@@ -29,7 +29,8 @@ $testCases = @(
     @{ Name = "ARC Lifecycle"; File = "examples/e2e_arc.gat"; Args = @(); Expect = "Exiting main"; ExpectedCode = 0 },
     @{ Name = "Node Chaining"; File = "examples/test_node.gat"; Args = @(); Expect = "Call str_val: str_concat"; ExpectedCode = 0 },
     @{ Name = "Enum & Match & Array"; File = "examples/test_enum_match.gat"; Args = @(); Expect = "Array[0]: 10, Array[2]: 30"; ExpectedCode = 0 },
-    @{ Name = "GatMin Suite"; File = "examples/test_gatmin.gat"; Args = @("alpha", "beta"); Expect = "Buf char 0: 71, char 1: 65, char 2: 84"; ExpectedCode = 0 }
+    @{ Name = "GatMin Suite"; File = "examples/test_gatmin.gat"; Args = @("alpha", "beta"); Expect = "Buf char 0: 71, char 1: 65, char 2: 84"; ExpectedCode = 0 },
+    @{ Name = "Multi-Module Import"; File = "examples/test_import.gat"; Args = @(); Expect = "Sum: 13, Prod: 42"; ExpectedCode = 0 }
 )
 
 $passed = 0

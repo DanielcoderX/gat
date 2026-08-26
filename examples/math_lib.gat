@@ -1,0 +1,15 @@
+struct MathResult {
+    sum: i64;
+    prod: i64;
+}
+
+fn math_calc(a: i64, b: i64) -> MathResult {
+    return new MathResult {
+        sum: a + b,
+        prod: a * b
+    };
+}
+
+fn add_nums(a: i64, b: i64) -> i64 {
+    return a + b;
+}

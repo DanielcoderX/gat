@@ -26,6 +26,7 @@ let TOK_RAW: i64 = 20;
 let TOK_PRINT: i64 = 21;
 let TOK_TRUE: i64 = 22;
 let TOK_FALSE: i64 = 23;
+let TOK_IMPORT: i64 = 24;
 let TOK_PLUS: i64 = 30;
 let TOK_MINUS: i64 = 31;
 let TOK_STAR: i64 = 32;
@@ -74,6 +75,7 @@ let AST_ENUM_DECL: i64 = 14;
 let AST_ENUM_VARIANT: i64 = 15;
 let AST_MATCH_STMT: i64 = 16;
 let AST_MATCH_ARM: i64 = 17;
+let AST_IMPORT_DECL: i64 = 18;
 let AST_INT_LIT: i64 = 20;
 let AST_STR_LIT: i64 = 21;
 let AST_BOOL_LIT: i64 = 22;
@@ -471,6 +473,7 @@ fn lookup_keyword(ident: string) -> i64 {
     if str_eq(ident, "print") { return TOK_PRINT; }
     if str_eq(ident, "true") { return TOK_TRUE; }
     if str_eq(ident, "false") { return TOK_FALSE; }
+    if str_eq(ident, "import") { return TOK_IMPORT; }
     return TOK_IDENT;
 }
 
@@ -1385,6 +1388,17 @@ fn parse_program(p: Parser) -> ASTNode {
             decl = parse_struct_or_class(p, true);
         } else if parser_cur_is(p, TOK_ENUM) {
             decl = parse_enum_decl(p);
+        } else if parser_cur_is(p, TOK_IMPORT) {
+            parser_next_token(p);
+            let imp_path = p.cur_tok.lit;
+            if parser_peek_is(p, TOK_SEMICOLON) {
+                parser_next_token(p);
+            }
+            decl = new ASTNode {
+                kind: AST_IMPORT_DECL,
+                str_val: imp_path,
+                left: nil, right: nil, child: nil, next: nil
+            };
         } else if parser_cur_is(p, TOK_LET) {
             decl = parse_statement(p);
         }
@@ -1405,6 +1419,79 @@ fn parse_program(p: Parser) -> ASTNode {
         child: head_decl,
         left: nil, right: nil, next: nil
     };
+}
+
+class FileList {
+    path: string;
+    next: FileList;
+}
+
+fn file_list_has(head: FileList, path: string) -> bool {
+    let cur = head;
+    while cur != nil {
+        if str_eq(cur.path, path) { return true; }
+        cur = cur.next;
+    }
+    return false;
+}
+
+fn resolve_imports(prog: ASTNode, loaded: FileList) -> ASTNode {
+    let head_decl: ASTNode = nil;
+    let tail_decl: ASTNode = nil;
+    let cur = prog.child;
+
+    while cur != nil {
+        let next_cur = cur.next;
+        cur.next = nil;
+
+        if cur.kind == AST_IMPORT_DECL {
+            let import_path = cur.str_val;
+            if !file_list_has(loaded, import_path) {
+                let node = new FileList {
+                    path: import_path,
+                    next: loaded.next
+                };
+                loaded.next = node;
+
+                let imported_src = read_file(import_path);
+                if str_len(imported_src) > 0 {
+                    let imp_l = lexer_new(imported_src);
+                    let imp_p = parser_new(imp_l);
+                    let imp_prog = parse_program(imp_p);
+                    let resolved_imp = resolve_imports(imp_prog, loaded);
+
+                    let imp_d = resolved_imp.child;
+                    while imp_d != nil {
+                        let next_d = imp_d.next;
+                        imp_d.next = nil;
+                        if head_decl == nil {
+                            head_decl = imp_d;
+                            tail_decl = imp_d;
+                        } else {
+                            tail_decl.next = imp_d;
+                            tail_decl = imp_d;
+                        }
+                        imp_d = next_d;
+                    }
+                } else {
+                    print("[Warning] Could not read import file: ", import_path, "\n");
+                }
+            }
+        } else {
+            if head_decl == nil {
+                head_decl = cur;
+                tail_decl = cur;
+            } else {
+                tail_decl.next = cur;
+                tail_decl = cur;
+            }
+        }
+
+        cur = next_cur;
+    }
+
+    prog.child = head_decl;
+    return prog;
 }
 
 // ----------------------------------------------------------------------------
@@ -1823,6 +1910,7 @@ fn get_const_val(name: string) -> i64 {
     if str_eq(name, "TOK_PRINT") { return 21; }
     if str_eq(name, "TOK_TRUE") { return 22; }
     if str_eq(name, "TOK_FALSE") { return 23; }
+    if str_eq(name, "TOK_IMPORT") { return 24; }
     if str_eq(name, "TOK_PLUS") { return 30; }
     if str_eq(name, "TOK_MINUS") { return 31; }
     if str_eq(name, "TOK_STAR") { return 32; }
@@ -3616,7 +3704,13 @@ fn main() -> i64 {
 
     let l = lexer_new(src);
     let p = parser_new(l);
-    let prog = parse_program(p);
+    let raw_prog = parse_program(p);
+
+    let loaded_files = new FileList {
+        path: src_path,
+        next: nil
+    };
+    let prog = resolve_imports(raw_prog, loaded_files);
 
     let tc = tc_new();
     let d = prog.child;

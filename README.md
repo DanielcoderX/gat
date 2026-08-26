@@ -276,7 +276,39 @@ fn array_demo() {
 
 ---
 
-### 11. Built-in Runtime Library
+### 11. Modules & Multi-File Imports
+
+`gat` supports multi-file modular projects with automatic circular import deduplication via `import`:
+
+```gat
+// math_lib.gat
+struct MathResult {
+    sum: i64;
+    prod: i64;
+}
+
+fn math_calc(a: i64, b: i64) -> MathResult {
+    return new MathResult {
+        sum: a + b,
+        prod: a * b
+    };
+}
+```
+
+```gat
+// main.gat
+import "math_lib.gat";
+
+fn main() -> i64 {
+    let res = math_calc(7, 6);
+    print("Sum: ", res.sum, ", Prod: ", res.prod, "\n");
+    return 0;
+}
+```
+
+---
+
+### 12. Built-in Runtime Library
 
 | Function | Signature | Description |
 |---|---|---|
