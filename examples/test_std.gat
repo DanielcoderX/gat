@@ -81,7 +81,7 @@ fn test_io() {
     let ok = io_write_text(test_file, "Standard Library IO Test Content\n");
     if result_is_ok(ok) {
         let content_res = io_read_text(test_file);
-        let content = result_unwrap(content_res);
+        let content: string = result_unwrap(content_res);
         print("Read back content: ", content);
         delete_file(test_file);
     }
