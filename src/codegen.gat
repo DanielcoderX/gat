@@ -704,6 +704,33 @@ fn cg_emit_runtime(cg: CodeGen) {
     bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0x58);
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0xB6); bb_write_u8(cg.code, 0xC0);
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 21. __gat_get_temp_dir() -> rax (string)
+    cg_define_sym(cg, "__gat_get_temp_dir");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x81); bb_write_u8(cg.code, 0xEC); bb_write_u32(cg.code, 0x230); // 560 bytes
+    // rcx = 512, rdx = lea [rbp - 512]
+    bb_write_u8(cg.code, 0xB9); bb_write_u32(cg.code, 512);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x95);
+    bb_write_u32(cg.code, (0 - 512));
+    cg_call_iat(cg, "GetTempPathA");
+    // save len in [rbp - 16]
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xF0);
+    // alloc_mem(len + 1)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xC1);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xC1); // len + 1
+    cg_call_sym(cg, "__gat_alloc_mem");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xF8); // [rbp - 8] = new_buf
+    // copy len + 1 bytes from [rbp - 512] to new_buf
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x7D); bb_write_u8(cg.code, 0xF8); // rdi = new_buf
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0xB5);
+    bb_write_u32(cg.code, (0 - 512)); // rsi = [rbp - 512]
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF0); // rcx = len
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xC1); // len + 1
+    bb_write_u8(cg.code, 0xF3); bb_write_u8(cg.code, 0xA4); // rep movsb
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xF8); // rax = new_buf
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
 }
 
 // Emit function machine instructions
@@ -902,6 +929,7 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             else if str_eq(callee, "get_pid") { callee = "__gat_get_pid"; }
             else if str_eq(callee, "exit_process") { callee = "__gat_exit_process"; }
             else if str_eq(callee, "exec_cmd") { callee = "__gat_exec_cmd"; }
+            else if str_eq(callee, "get_temp_dir") { callee = "__gat_get_temp_dir"; }
             else if str_eq(callee, "alloc_mem") { callee = "__gat_alloc_mem"; }
             else if str_eq(callee, "free_mem") { callee = "__gat_free_mem"; }
             else if str_eq(callee, "str_len") { callee = "__gat_str_len"; }

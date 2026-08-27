@@ -103,7 +103,10 @@ fn run_run() -> i64 {
         return 1;
     }
 
-    let temp_out = "bin/gat_run_temp.exe";
+    let temp_dir = fs_temp_dir();
+    let pid_str = str_from_int(proc_get_pid());
+    let temp_out = str_concat(temp_dir, str_concat("gat_run_", str_concat(pid_str, ".exe")));
+
     let ok = compile_to_binary(src_path, temp_out);
     if !ok {
         print("[gat] Compilation failed.\n");

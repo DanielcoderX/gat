@@ -147,7 +147,7 @@ fn ir_get_expr_type(ctx: IRContext, expr: ASTNode) -> string {
         let callee = expr.str_val;
         if str_eq(callee, "str_concat") || str_eq(callee, "str_sub") ||
            str_eq(callee, "str_from_int") || str_eq(callee, "get_cmd_arg") ||
-           str_eq(callee, "read_file") {
+           str_eq(callee, "read_file") || str_eq(callee, "get_temp_dir") {
             return "string";
         } else if str_eq(callee, "str_eq") || str_eq(callee, "delete_file") {
             return "bool";

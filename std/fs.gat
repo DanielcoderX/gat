@@ -31,3 +31,7 @@ fn fs_file_size(path: string) -> i64 {
 fn fs_delete_file(path: string) -> bool {
     return delete_file(path);
 }
+
+fn fs_temp_dir() -> string {
+    return get_temp_dir();
+}
