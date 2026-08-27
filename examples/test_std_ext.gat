@@ -23,6 +23,7 @@ fn test_math() -> bool {
 fn test_fs() -> bool {
     let tmp_file = "bin/test_fs_temp.txt";
     let test_str = "Hello from Gat std/fs!";
+    fs_delete_file(tmp_file);
     
     let written = fs_write_all(tmp_file, test_str);
     if !written {

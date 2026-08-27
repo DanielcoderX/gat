@@ -10,6 +10,7 @@ import "src/parser.gat";
 import "src/typecheck.gat";
 import "src/ir.gat";
 import "src/opt.gat";
+import "src/regalloc.gat";
 import "src/codegen.gat";
 import "src/pe.gat";
 

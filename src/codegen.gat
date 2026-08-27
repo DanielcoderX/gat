@@ -66,7 +66,48 @@ fn cg_call_iat(cg: CodeGen, sym: string) {
     cg_reloc(cg, str_concat("__iat_", sym), 2);
 }
 
-fn cg_mov_reg_local(cg: CodeGen, reg_idx: i64, val_id: i64) {
+fn cg_scratch_reg_code(scratch_idx: i64) -> i64 {
+    if scratch_idx == 0 { return 0; }  // RAX
+    if scratch_idx == 1 { return 1; }  // RCX
+    if scratch_idx == 2 { return 2; }  // RDX
+    if scratch_idx == 3 { return 10; } // R10
+    if scratch_idx == 4 { return 8; }  // R8
+    if scratch_idx == 5 { return 9; }  // R9
+    return 0;
+}
+
+fn cg_mov_reg_to_reg(cg: CodeGen, dest_reg: i64, src_reg: i64) {
+    if dest_reg == src_reg { return; }
+    let rex: i64 = 72; // 0x48
+    if src_reg >= 8 {
+        rex = rex + 4; // REX.R (0x04)
+    }
+    if dest_reg >= 8 {
+        rex = rex + 1; // REX.B (0x01)
+    }
+    let src_bits = src_reg;
+    if src_bits >= 8 { src_bits = src_bits - 8; }
+    let dest_bits = dest_reg;
+    if dest_bits >= 8 { dest_bits = dest_bits - 8; }
+
+    let modrm = 192 + (src_bits * 8) + dest_bits; // 0xC0 | (src_bits << 3) | dest_bits
+
+    bb_write_u8(cg.code, rex);
+    bb_write_u8(cg.code, 0x89);
+    bb_write_u8(cg.code, modrm);
+}
+
+fn cg_mov_scratch_from_phys(cg: CodeGen, scratch_idx: i64, phys_reg: i64) {
+    let scratch_reg = cg_scratch_reg_code(scratch_idx);
+    cg_mov_reg_to_reg(cg, scratch_reg, phys_reg);
+}
+
+fn cg_mov_phys_from_scratch(cg: CodeGen, phys_reg: i64, scratch_idx: i64) {
+    let scratch_reg = cg_scratch_reg_code(scratch_idx);
+    cg_mov_reg_to_reg(cg, phys_reg, scratch_reg);
+}
+
+fn cg_mov_reg_local(cg: CodeGen, reg_idx: i64, val_id: i64, ra_res: RegAllocResult) {
     if val_id == 0 {
         if reg_idx == 0 { // RAX
             bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0);
@@ -83,6 +124,15 @@ fn cg_mov_reg_local(cg: CodeGen, reg_idx: i64, val_id: i64) {
         }
         return;
     }
+
+    if ra_res != nil && val_id < ra_res.max_local + 64 {
+        let phys = ra_res.reg_map[val_id];
+        if phys > 0 {
+            cg_mov_scratch_from_phys(cg, reg_idx, phys);
+            return;
+        }
+    }
+
     let disp = val_id * 8;
     // mov reg, [rbp - disp]
     if reg_idx == 0 { // RAX
@@ -106,7 +156,15 @@ fn cg_mov_reg_local(cg: CodeGen, reg_idx: i64, val_id: i64) {
     }
 }
 
-fn cg_mov_local_reg(cg: CodeGen, val_id: i64, reg_idx: i64) {
+fn cg_mov_local_reg(cg: CodeGen, val_id: i64, reg_idx: i64, ra_res: RegAllocResult) {
+    if ra_res != nil && val_id < ra_res.max_local + 64 {
+        let phys = ra_res.reg_map[val_id];
+        if phys > 0 {
+            cg_mov_phys_from_scratch(cg, phys, reg_idx);
+            return;
+        }
+    }
+
     let disp = val_id * 8;
     // mov [rbp - disp], reg
     if reg_idx == 0 { // RAX
@@ -745,78 +803,162 @@ fn cg_emit_runtime(cg: CodeGen) {
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
 }
 
+fn cg_emit_epilogue(cg: CodeGen, ra_res: RegAllocResult) {
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); // mov rsp, rbp
+    if ra_res != nil {
+        if ra_res.used_r14 == 1 { bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0x5E); } // pop r14
+        if ra_res.used_r13 == 1 { bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0x5D); } // pop r13
+        if ra_res.used_r12 == 1 { bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0x5C); } // pop r12
+        if ra_res.used_rbx == 1 { bb_write_u8(cg.code, 0x5B); } // pop rbx
+    }
+    bb_write_u8(cg.code, 0x5D); // pop rbp
+    bb_write_u8(cg.code, 0xC3); // ret
+}
+
 // Emit function machine instructions
 fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
+    let ra_res = ra_allocate_function(fn_obj);
     cg_define_sym(cg, fn_obj.name);
 
-    // Prologue: push rbp; mov rbp, rsp; sub rsp, frameSize
-    let frame_size = align_val((fn_obj.max_local + 4) * 8 + 32, 16);
+    // Prologue: push rbp; [push callee-saved regs]; mov rbp, rsp; sub rsp, frameSize
     bb_write_u8(cg.code, 0x55);
+    if ra_res != nil {
+        if ra_res.used_rbx == 1 { bb_write_u8(cg.code, 0x53); }
+        if ra_res.used_r12 == 1 { bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0x54); }
+        if ra_res.used_r13 == 1 { bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0x55); }
+        if ra_res.used_r14 == 1 { bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0x56); }
+    }
+    let num_callee = 0;
+    if ra_res != nil {
+        num_callee = ra_res.used_rbx + ra_res.used_r12 + ra_res.used_r13 + ra_res.used_r14;
+    }
+    let frame_size = align_val((fn_obj.max_local + 4) * 8 + 32, 16);
+    if num_callee == 1 || num_callee == 3 {
+        frame_size = frame_size + 8;
+    }
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x81); bb_write_u8(cg.code, 0xEC);
     bb_write_u32(cg.code, frame_size);
 
-    // Save incoming fastcall parameters to their stack slots
+    // Save incoming fastcall parameters to their registers or stack slots
     if fn_obj.param_count > 0 { // RCX -> param 1
-        bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x8D);
-        bb_write_u32(cg.code, (0 - 8));
+        let phys = 0;
+        if ra_res != nil && 1 < ra_res.max_local + 64 { phys = ra_res.reg_map[1]; }
+        if phys > 0 {
+            cg_mov_phys_from_scratch(cg, phys, 1);
+        } else {
+            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x8D);
+            bb_write_u32(cg.code, (0 - 8));
+        }
     }
     if fn_obj.param_count > 1 { // RDX -> param 2
-        bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x95);
-        bb_write_u32(cg.code, (0 - 16));
+        let phys = 0;
+        if ra_res != nil && 2 < ra_res.max_local + 64 { phys = ra_res.reg_map[2]; }
+        if phys > 0 {
+            cg_mov_phys_from_scratch(cg, phys, 2);
+        } else {
+            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x95);
+            bb_write_u32(cg.code, (0 - 16));
+        }
     }
     if fn_obj.param_count > 2 { // R8 -> param 3
-        bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x85);
-        bb_write_u32(cg.code, (0 - 24));
+        let phys = 0;
+        if ra_res != nil && 3 < ra_res.max_local + 64 { phys = ra_res.reg_map[3]; }
+        if phys > 0 {
+            cg_mov_phys_from_scratch(cg, phys, 4);
+        } else {
+            bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x85);
+            bb_write_u32(cg.code, (0 - 24));
+        }
     }
     if fn_obj.param_count > 3 { // R9 -> param 4
-        bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x8D);
-        bb_write_u32(cg.code, (0 - 32));
+        let phys = 0;
+        if ra_res != nil && 4 < ra_res.max_local + 64 { phys = ra_res.reg_map[4]; }
+        if phys > 0 {
+            cg_mov_phys_from_scratch(cg, phys, 5);
+        } else {
+            bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x8D);
+            bb_write_u32(cg.code, (0 - 32));
+        }
     }
-    if fn_obj.param_count > 4 { // [rbp + 48] -> param 5
-        bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0x30); // mov rax, [rbp+0x30]
-        bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x85);
-        bb_write_u32(cg.code, (0 - 40)); // mov [rbp-40], rax
+    if fn_obj.param_count > 4 { // 5th param from caller stack frame
+        let phys = 0;
+        if ra_res != nil && 5 < ra_res.max_local + 64 { phys = ra_res.reg_map[5]; }
+        let arg5_disp = 48 + num_callee * 8;
+        bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, arg5_disp); // mov rax, [rbp + arg5_disp]
+        if phys > 0 {
+            cg_mov_phys_from_scratch(cg, phys, 0);
+        } else {
+            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x85);
+            bb_write_u32(cg.code, (0 - 40));
+        }
     }
 
-    // Zero-initialize remaining local variable slots
+    // Zero-initialize remaining spilled local variable slots
     let loc_idx = fn_obj.param_count + 1;
     while loc_idx <= fn_obj.max_local {
-        let disp = loc_idx * 8;
-        bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x85);
-        bb_write_u32(cg.code, (0 - disp));
-        bb_write_u32(cg.code, 0);
+        let phys = 0;
+        if ra_res != nil && loc_idx < ra_res.max_local + 64 { phys = ra_res.reg_map[loc_idx]; }
+        if phys == 0 {
+            let disp = loc_idx * 8;
+            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x85);
+            bb_write_u32(cg.code, (0 - disp));
+            bb_write_u32(cg.code, 0);
+        }
         loc_idx = loc_idx + 1;
     }
 
     let inst = fn_obj.inst_head;
     while inst != nil {
         if inst.op == IR_OP_CONST_INT {
-            let disp = inst.dest * 8;
-            if inst.int_val >= (0 - 2147483648) && inst.int_val <= 2147483647 {
+            let phys = 0;
+            if ra_res != nil && inst.dest < ra_res.max_local + 64 { phys = ra_res.reg_map[inst.dest]; }
+            if phys > 0 {
+                if inst.int_val == 0 {
+                    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0);
+                } else if inst.int_val >= (0 - 2147483648) && inst.int_val <= 2147483647 {
+                    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0xC0);
+                    bb_write_u32(cg.code, inst.int_val);
+                } else {
+                    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xB8);
+                    bb_write_u64(cg.code, inst.int_val);
+                }
+                cg_mov_phys_from_scratch(cg, phys, 0);
+            } else {
+                let disp = inst.dest * 8;
+                if inst.int_val >= (0 - 2147483648) && inst.int_val <= 2147483647 {
+                    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x85);
+                    bb_write_u32(cg.code, (0 - disp));
+                    bb_write_u32(cg.code, inst.int_val);
+                } else {
+                    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xB8);
+                    bb_write_u64(cg.code, inst.int_val);
+                    cg_mov_local_reg(cg, inst.dest, 0, ra_res);
+                }
+            }
+        } else if inst.op == IR_OP_CONST_BOOL {
+            let phys = 0;
+            if ra_res != nil && inst.dest < ra_res.max_local + 64 { phys = ra_res.reg_map[inst.dest]; }
+            if phys > 0 {
+                bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0xC0);
+                bb_write_u32(cg.code, inst.int_val);
+                cg_mov_phys_from_scratch(cg, phys, 0);
+            } else {
+                let disp = inst.dest * 8;
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x85);
                 bb_write_u32(cg.code, (0 - disp));
                 bb_write_u32(cg.code, inst.int_val);
-            } else {
-                bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xB8);
-                bb_write_u64(cg.code, inst.int_val);
-                cg_mov_local_reg(cg, inst.dest, 0);
             }
-        } else if inst.op == IR_OP_CONST_BOOL {
-            let disp = inst.dest * 8;
-            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x85);
-            bb_write_u32(cg.code, (0 - disp));
-            bb_write_u32(cg.code, inst.int_val);
         } else if inst.op == IR_OP_CONST_STR {
             bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x05);
             cg_reloc(cg, inst.str_val, 1);
-            cg_mov_local_reg(cg, inst.dest, 0);
+            cg_mov_local_reg(cg, inst.dest, 0, ra_res);
         } else if inst.op == IR_OP_COPY {
-            cg_mov_reg_local(cg, 0, inst.src1);
-            cg_mov_local_reg(cg, inst.dest, 0);
+            cg_mov_reg_local(cg, 0, inst.src1, ra_res);
+            cg_mov_local_reg(cg, inst.dest, 0, ra_res);
         } else if inst.op == IR_OP_BIN_OP {
-            cg_mov_reg_local(cg, 0, inst.src1); // RAX
-            cg_mov_reg_local(cg, 2, inst.src2); // RDX
+            cg_mov_reg_local(cg, 0, inst.src1, ra_res); // RAX
+            cg_mov_reg_local(cg, 2, inst.src2, ra_res); // RDX
             if str_eq(inst.str_val, "+") {
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x01); bb_write_u8(cg.code, 0xD0);
             } else if str_eq(inst.str_val, "-") {
@@ -824,11 +966,11 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             } else if str_eq(inst.str_val, "*") {
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0xAF); bb_write_u8(cg.code, 0xC2);
             } else if str_eq(inst.str_val, "/") {
-                cg_mov_reg_local(cg, 3, inst.src2); // R10 = src2
+                cg_mov_reg_local(cg, 3, inst.src2, ra_res); // R10 = src2
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x99); // cqo
                 bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0xF7); bb_write_u8(cg.code, 0xFA); // idiv r10
             } else if str_eq(inst.str_val, "%") {
-                cg_mov_reg_local(cg, 3, inst.src2); // R10 = src2
+                cg_mov_reg_local(cg, 3, inst.src2, ra_res); // R10 = src2
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x99); // cqo
                 bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0xF7); bb_write_u8(cg.code, 0xFA); // idiv r10
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xD0); // mov rax, rdx
@@ -861,9 +1003,9 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
                 bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x9D); bb_write_u8(cg.code, 0xC0);
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0xB6); bb_write_u8(cg.code, 0xC0);
             }
-            cg_mov_local_reg(cg, inst.dest, 0);
+            cg_mov_local_reg(cg, inst.dest, 0, ra_res);
         } else if inst.op == IR_OP_UN_OP {
-            cg_mov_reg_local(cg, 0, inst.src1);
+            cg_mov_reg_local(cg, 0, inst.src1, ra_res);
             if str_eq(inst.str_val, "-") {
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xF7); bb_write_u8(cg.code, 0xD8);
             } else if str_eq(inst.str_val, "!") {
@@ -871,22 +1013,22 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
                 bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x94); bb_write_u8(cg.code, 0xC0);
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0xB6); bb_write_u8(cg.code, 0xC0);
             }
-            cg_mov_local_reg(cg, inst.dest, 0);
+            cg_mov_local_reg(cg, inst.dest, 0, ra_res);
         } else if inst.op == IR_OP_LOAD {
-            cg_mov_reg_local(cg, 3, inst.src1);
+            cg_mov_reg_local(cg, 3, inst.src1, ra_res);
             // mov rax, [r10 + offset] -> 49 8B 82 disp32
             bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x82);
             bb_write_u32(cg.code, inst.offset);
-            cg_mov_local_reg(cg, inst.dest, 0);
+            cg_mov_local_reg(cg, inst.dest, 0, ra_res);
         } else if inst.op == IR_OP_STORE {
-            cg_mov_reg_local(cg, 3, inst.dest);
-            cg_mov_reg_local(cg, 0, inst.src1);
+            cg_mov_reg_local(cg, 3, inst.dest, ra_res);
+            cg_mov_reg_local(cg, 0, inst.src1, ra_res);
             // mov [r10 + offset], rax -> 49 89 82 disp32
             bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x82);
             bb_write_u32(cg.code, inst.offset);
         } else if inst.op == IR_OP_LOAD_INDEX {
-            cg_mov_reg_local(cg, 3, inst.src1);
-            cg_mov_reg_local(cg, 1, inst.src2);
+            cg_mov_reg_local(cg, 3, inst.src1, ra_res);
+            cg_mov_reg_local(cg, 1, inst.src2, ra_res);
             if inst.int_val == 1 {
                 // movzx rax, byte ptr [r10 + rcx] -> 49 0F B6 04 0A
                 bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0xB6); bb_write_u8(cg.code, 0x04); bb_write_u8(cg.code, 0x0A);
@@ -894,11 +1036,11 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
                 // mov rax, qword ptr [r10 + rcx*8] -> 49 8B 04 CA
                 bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x04); bb_write_u8(cg.code, 0xCA);
             }
-            cg_mov_local_reg(cg, inst.dest, 0);
+            cg_mov_local_reg(cg, inst.dest, 0, ra_res);
         } else if inst.op == IR_OP_STORE_INDEX {
-            cg_mov_reg_local(cg, 3, inst.dest);
-            cg_mov_reg_local(cg, 1, inst.src2);
-            cg_mov_reg_local(cg, 0, inst.src1);
+            cg_mov_reg_local(cg, 3, inst.dest, ra_res);
+            cg_mov_reg_local(cg, 1, inst.src2, ra_res);
+            cg_mov_reg_local(cg, 0, inst.src1, ra_res);
             if inst.int_val == 1 {
                 // mov byte ptr [r10 + rcx], al -> 41 88 04 0A
                 bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0x88); bb_write_u8(cg.code, 0x04); bb_write_u8(cg.code, 0x0A);
@@ -913,25 +1055,25 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x00); bb_write_u32(cg.code, 1);
             bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x40); bb_write_u8(cg.code, 0x08); bb_write_u32(cg.code, inst.int_val);
             bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xC0); bb_write_u8(cg.code, 0x10);
-            cg_mov_local_reg(cg, inst.dest, 0);
+            cg_mov_local_reg(cg, inst.dest, 0, ra_res);
         } else if inst.op == IR_OP_ALLOC_STACK {
             bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0xC1);
             bb_write_u32(cg.code, inst.offset + 8);
             cg_call_sym(cg, "__gat_alloc_mem");
-            cg_mov_local_reg(cg, inst.dest, 0);
+            cg_mov_local_reg(cg, inst.dest, 0, ra_res);
         } else if inst.op == IR_OP_RETAIN {
-            cg_mov_reg_local(cg, 1, inst.src1);
+            cg_mov_reg_local(cg, 1, inst.src1, ra_res);
             cg_call_sym(cg, "__gat_retain");
         } else if inst.op == IR_OP_RELEASE {
-            cg_mov_reg_local(cg, 1, inst.src1);
+            cg_mov_reg_local(cg, 1, inst.src1, ra_res);
             cg_call_sym(cg, "__gat_release");
         } else if inst.op == IR_OP_CALL {
-            if inst.arg_count >= 1 { cg_mov_reg_local(cg, 1, inst.src1); }
-            if inst.arg_count >= 2 { cg_mov_reg_local(cg, 2, inst.src2); }
-            if inst.arg_count >= 3 { cg_mov_reg_local(cg, 4, inst.offset); }
-            if inst.arg_count >= 4 { cg_mov_reg_local(cg, 5, inst.int_val); }
+            if inst.arg_count >= 1 { cg_mov_reg_local(cg, 1, inst.src1, ra_res); }
+            if inst.arg_count >= 2 { cg_mov_reg_local(cg, 2, inst.src2, ra_res); }
+            if inst.arg_count >= 3 { cg_mov_reg_local(cg, 4, inst.offset, ra_res); }
+            if inst.arg_count >= 4 { cg_mov_reg_local(cg, 5, inst.int_val, ra_res); }
             if inst.arg_count >= 5 {
-                cg_mov_reg_local(cg, 0, inst.extra);
+                cg_mov_reg_local(cg, 0, inst.extra, ra_res);
                 bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x44); bb_write_u8(cg.code, 0x24); bb_write_u8(cg.code, 0x20); // mov [rsp+0x20], rax
             }
             let callee = inst.str_val;
@@ -954,10 +1096,10 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             else if str_eq(callee, "sleep") { callee = "__gat_sleep"; }
             cg_call_sym(cg, callee);
             if inst.dest != 0 {
-                cg_mov_local_reg(cg, inst.dest, 0);
+                cg_mov_local_reg(cg, inst.dest, 0, ra_res);
             }
         } else if inst.op == IR_OP_PRINT {
-            cg_mov_reg_local(cg, 1, inst.src1);
+            cg_mov_reg_local(cg, 1, inst.src1, ra_res);
             if inst.type_kind == TYPE_STRING {
                 cg_call_sym(cg, "__gat_print_str");
             } else if inst.type_kind == TYPE_BOOL {
@@ -966,17 +1108,15 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
                 cg_call_sym(cg, "__gat_print_i64");
             }
         } else if inst.op == IR_OP_RETURN {
-            cg_mov_reg_local(cg, 0, inst.src1);
-            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC);
-            bb_write_u8(cg.code, 0x5D);
-            bb_write_u8(cg.code, 0xC3);
+            cg_mov_reg_local(cg, 0, inst.src1, ra_res);
+            cg_emit_epilogue(cg, ra_res);
         } else if inst.op == IR_OP_LABEL {
             cg_define_sym(cg, inst.label);
         } else if inst.op == IR_OP_JUMP {
             bb_write_u8(cg.code, 0xE9);
             cg_reloc(cg, inst.label, 1);
         } else if inst.op == IR_OP_BRANCH {
-            cg_mov_reg_local(cg, 0, inst.src1);
+            cg_mov_reg_local(cg, 0, inst.src1, ra_res);
             bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC0);
             bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x84);
             cg_reloc(cg, inst.label, 1);
@@ -984,10 +1124,9 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
         inst = inst.next;
     }
 
-    // Default epilogue: mov rsp, rbp; pop rbp; ret
-    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC);
-    bb_write_u8(cg.code, 0x5D);
-    bb_write_u8(cg.code, 0xC3);
+    // Default epilogue: mov rsp, rbp; [pop callee-saved regs]; pop rbp; ret
+    cg_emit_epilogue(cg, ra_res);
+    ra_free_result(ra_res);
 }
 
 // ----------------------------------------------------------------------------

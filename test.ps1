@@ -38,7 +38,8 @@ $testCases = @(
     @{ Name = "Optimizer Passes"; File = "examples/test_opt.gat"; Args = @(); Expect = "Optimizer passes verified successfully!"; ExpectedCode = 0 },
     @{ Name = "Extended Standard Library (math, fs, proc)"; File = "examples/test_std_ext.gat"; Args = @(); Expect = "Extended standard library tests passed!"; ExpectedCode = 0 },
     @{ Name = "Generic Types & Erasure Suite"; File = "examples/test_generic_types.gat"; Args = @(); Expect = "All uniform word-sized generic tests passed!"; ExpectedCode = 0 },
-    @{ Name = "Advanced DCE & ARC Optimizer"; File = "examples/test_opt_adv.gat"; Args = @(); Expect = "Advanced DCE and ARC optimizer test passed!"; ExpectedCode = 0 }
+    @{ Name = "Advanced DCE & ARC Optimizer"; File = "examples/test_opt_adv.gat"; Args = @(); Expect = "Advanced DCE and ARC optimizer test passed!"; ExpectedCode = 0 },
+    @{ Name = "Linear-Scan Register Allocation"; File = "examples/test_regalloc.gat"; Args = @(); Expect = "All register allocator tests passed successfully!"; ExpectedCode = 0 }
 )
 
 $passed = 0

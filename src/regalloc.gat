@@ -1,0 +1,247 @@
+// ============================================================================
+// src/regalloc.gat - Linear-Scan Register Allocator
+// ============================================================================
+
+class RegAllocResult {
+    reg_map: raw i64;
+    used_rbx: i64;
+    used_r12: i64;
+    used_r13: i64;
+    used_r14: i64;
+    max_local: i64;
+}
+
+fn ra_new_result(max_local: i64) -> RegAllocResult {
+    let size = (max_local + 64) * 8;
+    let map: raw i64 = alloc_mem(size);
+    let i: i64 = 0;
+    while i < max_local + 64 {
+        map[i] = 0; // 0 = spilled / stack slot
+        i = i + 1;
+    }
+    return new RegAllocResult {
+        reg_map: map,
+        used_rbx: 0,
+        used_r12: 0,
+        used_r13: 0,
+        used_r14: 0,
+        max_local: max_local
+    };
+}
+
+fn ra_free_result(res: RegAllocResult) {
+    if res != nil && res.reg_map != nil {
+        free_mem(res.reg_map);
+    }
+}
+
+fn ra_allocate_function(fn_obj: IRFunc) -> RegAllocResult {
+    let max_v = fn_obj.max_local + 64;
+    let res = ra_new_result(fn_obj.max_local);
+
+    if fn_obj.inst_head == nil || max_v <= 1 {
+        return res;
+    }
+
+    let arr_size = max_v * 8;
+    let start_idx: raw i64 = alloc_mem(arr_size);
+    let end_idx: raw i64 = alloc_mem(arr_size);
+
+    let i: i64 = 0;
+    while i < max_v {
+        start_idx[i] = 0 - 1;
+        end_idx[i] = 0 - 1;
+        i = i + 1;
+    }
+
+    // Parameters are live from entry
+    let p_idx: i64 = 1;
+    while p_idx <= fn_obj.param_count && p_idx < max_v {
+        start_idx[p_idx] = 0;
+        end_idx[p_idx] = 0;
+        p_idx = p_idx + 1;
+    }
+
+    // 1. First pass: record basic live ranges and label positions
+    let inst = fn_obj.inst_head;
+    let cur_idx: i64 = 0;
+    while inst != nil {
+        if inst.op != 0 {
+            let d = inst.dest;
+            if d > 0 && d < max_v && inst.op != IR_OP_STORE && inst.op != IR_OP_STORE_INDEX {
+                if start_idx[d] == (0 - 1) { start_idx[d] = cur_idx; }
+                end_idx[d] = cur_idx;
+            }
+
+            let s1 = inst.src1;
+            if s1 > 0 && s1 < max_v {
+                if start_idx[s1] == (0 - 1) { start_idx[s1] = cur_idx; }
+                end_idx[s1] = cur_idx;
+            }
+
+            let s2 = inst.src2;
+            if s2 > 0 && s2 < max_v {
+                if start_idx[s2] == (0 - 1) { start_idx[s2] = cur_idx; }
+                end_idx[s2] = cur_idx;
+            }
+
+            if inst.op == IR_OP_STORE || inst.op == IR_OP_STORE_INDEX {
+                if d > 0 && d < max_v {
+                    if start_idx[d] == (0 - 1) { start_idx[d] = cur_idx; }
+                    end_idx[d] = cur_idx;
+                }
+            }
+
+            if inst.op == IR_OP_CALL {
+                if inst.arg_count >= 3 && inst.offset > 0 && inst.offset < max_v {
+                    if start_idx[inst.offset] == (0 - 1) { start_idx[inst.offset] = cur_idx; }
+                    end_idx[inst.offset] = cur_idx;
+                }
+                if inst.arg_count >= 4 && inst.int_val > 0 && inst.int_val < max_v {
+                    if start_idx[inst.int_val] == (0 - 1) { start_idx[inst.int_val] = cur_idx; }
+                    end_idx[inst.int_val] = cur_idx;
+                }
+                if inst.arg_count >= 5 && inst.extra > 0 && inst.extra < max_v {
+                    if start_idx[inst.extra] == (0 - 1) { start_idx[inst.extra] = cur_idx; }
+                    end_idx[inst.extra] = cur_idx;
+                }
+            }
+        }
+        inst = inst.next;
+        cur_idx = cur_idx + 1;
+    }
+
+    // 2. Loop back-edge range extension
+    inst = fn_obj.inst_head;
+    cur_idx = 0;
+    while inst != nil {
+        if inst.op == IR_OP_JUMP || inst.op == IR_OP_BRANCH {
+            let target_lbl = inst.label;
+            if str_len(target_lbl) > 0 {
+                // Find target label position
+                let scan = fn_obj.inst_head;
+                let scan_idx: i64 = 0;
+                let target_pos: i64 = 0 - 1;
+                while scan != nil {
+                    if scan.op == IR_OP_LABEL && str_eq(scan.label, target_lbl) {
+                        target_pos = scan_idx;
+                    }
+                    scan = scan.next;
+                    scan_idx = scan_idx + 1;
+                }
+
+                if target_pos != (0 - 1) && target_pos < cur_idx {
+                    // Backward jump (loop back-edge): extend live ranges of all variables live in loop
+                    let v: i64 = 1;
+                    while v < max_v {
+                        if start_idx[v] != (0 - 1) && start_idx[v] <= cur_idx && end_idx[v] >= target_pos {
+                            if end_idx[v] < cur_idx {
+                                end_idx[v] = cur_idx;
+                            }
+                        }
+                        v = v + 1;
+                    }
+                }
+            }
+        }
+        inst = inst.next;
+        cur_idx = cur_idx + 1;
+    }
+
+    // 3. Linear Scan Register Allocation sorted by start_idx
+    // Collect and sort all valid intervals by start_idx ascending
+    let order: raw i64 = alloc_mem(max_v * 8);
+    let count: i64 = 0;
+    let v_scan: i64 = 1;
+    while v_scan < max_v {
+        if start_idx[v_scan] != (0 - 1) && end_idx[v_scan] >= start_idx[v_scan] {
+            order[count] = v_scan;
+            count = count + 1;
+        }
+        v_scan = v_scan + 1;
+    }
+
+    // Selection sort by start_idx ascending
+    let s_i: i64 = 0;
+    while s_i < count {
+        let s_j: i64 = s_i + 1;
+        while s_j < count {
+            let vi = order[s_i];
+            let vj = order[s_j];
+            if start_idx[vj] < start_idx[vi] {
+                order[s_i] = vj;
+                order[s_j] = vi;
+            }
+            s_j = s_j + 1;
+        }
+        s_i = s_i + 1;
+    }
+
+    // Regs: RBX (3), R12 (12), R13 (13), R14 (14)
+    let reg_pool: raw i64 = alloc_mem(4 * 8);
+    reg_pool[0] = 3;  // RBX
+    reg_pool[1] = 12; // R12
+    reg_pool[2] = 13; // R13
+    reg_pool[3] = 14; // R14
+
+    let reg_owner: raw i64 = alloc_mem(4 * 8);
+    reg_owner[0] = 0;
+    reg_owner[1] = 0;
+    reg_owner[2] = 0;
+    reg_owner[3] = 0;
+
+    let k: i64 = 0;
+    while k < count {
+        let v_id = order[k];
+        let v_start = start_idx[v_id];
+        let v_end = end_idx[v_id];
+
+        // Expire old intervals
+        let r: i64 = 0;
+        while r < 4 {
+            let owner = reg_owner[r];
+            if owner > 0 {
+                if end_idx[owner] < v_start {
+                    reg_owner[r] = 0; // free register
+                }
+            }
+            r = r + 1;
+        }
+
+        // Find free register
+        let assigned_slot: i64 = 0 - 1;
+        r = 0;
+        while r < 4 {
+            if reg_owner[r] == 0 {
+                assigned_slot = r;
+                r = 4;
+            } else {
+                r = r + 1;
+            }
+        }
+
+        if assigned_slot != (0 - 1) {
+            let phys_reg = reg_pool[assigned_slot];
+            reg_owner[assigned_slot] = v_id;
+            res.reg_map[v_id] = phys_reg;
+
+            if phys_reg == 3 { res.used_rbx = 1; }
+            else if phys_reg == 12 { res.used_r12 = 1; }
+            else if phys_reg == 13 { res.used_r13 = 1; }
+            else if phys_reg == 14 { res.used_r14 = 1; }
+        } else {
+            // All 4 registers busy: spill current v_id to stack slot
+            res.reg_map[v_id] = 0;
+        }
+        k = k + 1;
+    }
+
+    free_mem(order);
+
+    free_mem(start_idx);
+    free_mem(end_idx);
+    free_mem(reg_pool);
+    free_mem(reg_owner);
+
+    return res;
+}
