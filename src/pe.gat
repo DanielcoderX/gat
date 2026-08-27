@@ -34,7 +34,7 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
 
     // IAT
     let iat_start = rdata.size;
-    let num_imports: i64 = 17;
+    let num_imports: i64 = 18;
     let i: i64 = 0;
     while i <= num_imports {
         bb_write_u64(rdata, 0);
@@ -60,7 +60,7 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
 
     // Hint/Name Table
     let hn_offsets = bb_new(128);
-    let imp_names = "ExitProcess,GetStdHandle,WriteFile,GetProcessHeap,HeapAlloc,HeapFree,CreateFileA,ReadFile,CloseHandle,GetFileSizeEx,GetCommandLineA,DeleteFileA,GetCurrentProcessId,CreateProcessA,WaitForSingleObject,GetExitCodeProcess,GetTempPathA,";
+    let imp_names = "ExitProcess,GetStdHandle,WriteFile,GetProcessHeap,HeapAlloc,HeapFree,CreateFileA,ReadFile,CloseHandle,GetFileSizeEx,GetCommandLineA,DeleteFileA,GetCurrentProcessId,CreateProcessA,WaitForSingleObject,GetExitCodeProcess,GetTempPathA,Sleep,";
     let imp_start = 0;
     i = 0;
     while i < str_len(imp_names) {
@@ -197,6 +197,7 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
             else if str_eq(rel.sym, "__iat_WaitForSingleObject") { imp_idx = 14; }
             else if str_eq(rel.sym, "__iat_GetExitCodeProcess") { imp_idx = 15; }
             else if str_eq(rel.sym, "__iat_GetTempPathA") { imp_idx = 16; }
+            else if str_eq(rel.sym, "__iat_Sleep") { imp_idx = 17; }
             let iat_slot_rva = rdata_rva + iat_start + imp_idx * 8;
             let from_rva = text_rva + rel.offset + 4;
             let diff = iat_slot_rva - from_rva;

@@ -113,7 +113,22 @@ fn run_run() -> i64 {
         return 1;
     }
 
-    let exit_code = proc_exec(temp_out);
+    let cmd_sb = sb_new(str_len(temp_out) + 64);
+    sb_append(cmd_sb, "\"");
+    sb_append(cmd_sb, temp_out);
+    sb_append(cmd_sb, "\"");
+
+    let arg_idx: i64 = 3;
+    let extra_arg = get_cmd_arg(arg_idx);
+    while str_len(extra_arg) > 0 {
+        sb_append(cmd_sb, " ");
+        sb_append(cmd_sb, extra_arg);
+        arg_idx = arg_idx + 1;
+        extra_arg = get_cmd_arg(arg_idx);
+    }
+
+    let full_cmd = sb_to_string(cmd_sb);
+    let exit_code = proc_exec(full_cmd);
     fs_delete_file(temp_out);
     return exit_code;
 }

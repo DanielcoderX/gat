@@ -13,3 +13,7 @@ fn proc_exit(code: i64) {
 fn proc_get_pid() -> i64 {
     return get_pid();
 }
+
+fn proc_sleep(ms: i64) {
+    sleep(ms);
+}

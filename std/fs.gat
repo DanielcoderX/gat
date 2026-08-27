@@ -29,7 +29,15 @@ fn fs_file_size(path: string) -> i64 {
 }
 
 fn fs_delete_file(path: string) -> bool {
-    return delete_file(path);
+    let i = 0;
+    while i < 50 {
+        if delete_file(path) {
+            return true;
+        }
+        sleep(20);
+        i = i + 1;
+    }
+    return false;
 }
 
 fn fs_temp_dir() -> string {
