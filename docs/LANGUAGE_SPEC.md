@@ -1,7 +1,7 @@
 # Gat Language Specification
 
 **Version:** 0.3.0  
-**Target:** x86-64 Native (Windows PE32+ / Linux ELF64)  
+**Target:** x86-64 Native (Windows PE32+) *[Linux ELF64: Planned Future Target]*  
 **Memory Model:** Automatic Reference Counting (ARC)
 
 ---
@@ -9,7 +9,7 @@
 ## Table of Contents
 1. [Overview](#1-overview)
 2. [Lexical Structure](#2-lexical-structure)
-3. [Type System](#3-type-system)
+3. [Type System & Generics](#3-type-system--generics)
 4. [Memory Model & ARC](#4-memory-model--arc)
 5. [Declarations](#5-declarations)
 6. [Statements & Control Flow](#6-statements--control-flow)
@@ -46,7 +46,7 @@ Identifiers start with an ASCII letter or underscore, followed by letters, digit
 
 ---
 
-## 3. Type System
+## 3. Type System & Generics
 
 ### 3.1 Primitive Types
 - `i64`: 64-bit signed integer.
@@ -60,18 +60,34 @@ Identifiers start with an ASCII letter or underscore, followed by letters, digit
 - **Class**: Reference-counted heap object defined with `class Name { field: Type; ... }`.
 - **Enum**: Tagged algebraic sum type with optional payload:
   ```gat
-  enum Option<T> {
-      None,
-      Some(T)
+  enum Result<T, E> {
+      Ok(T),
+      Err(E)
   }
   ```
-- **Generics / Parametric Types**: Structs, classes, enums, and functions support generic type parameters `<T, U>`:
-  ```gat
-  class Node<T> {
-      value: T;
-      next: Node<T>;
-  }
-  ```
+
+### 3.3 Generics Model (Uniform Word-Sized Type Erasure)
+Gat implements **Uniform 64-bit Word-Sized Generics** via compile-time type erasure:
+- Generic parameters `<T, U>` represent any 64-bit word-sized type:
+  - Primitives: `i64`, `bool`
+  - References & Handles: `string`, `class` instances, `array`, raw pointers
+- **Representation**: Every generic type parameter occupies exactly 1 machine word (8 bytes).
+- **Value Type Restriction**: Multi-word value types (multi-field `struct` value types) cannot be used directly as generic type arguments; they must be wrapped in a `class` (heap reference) or passed via pointers.
+- **Benefits**: Eliminates template code-bloat, enables fast single-pass compilation, and provides 100% type soundness across all 64-bit word-sized types.
+
+```gat
+class Pair<T, U> {
+    first: T;
+    second: U;
+}
+
+fn make_pair<T, U>(a: T, b: U) -> Pair<T, U> {
+    return new Pair<T, U> {
+        first: a,
+        second: b
+    };
+}
+```
 
 ---
 

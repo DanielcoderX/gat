@@ -1,0 +1,108 @@
+// ============================================================================
+// examples/test_generic_types.gat - Generics Uniform Representation Test Suite
+// ============================================================================
+
+class Node<T> {
+    value: T;
+    next: Node<T>;
+}
+
+class KeyValue<K, V> {
+    key: K;
+    value: V;
+    valid: bool;
+}
+
+enum Option<T> {
+    None,
+    Some(T)
+}
+
+fn wrap_node<T>(val: T) -> Node<T> {
+    return new Node<T> {
+        value: val,
+        next: nil
+    };
+}
+
+fn create_kv<K, V>(k: K, v: V, flag: bool) -> KeyValue<K, V> {
+    return new KeyValue<K, V> {
+        key: k,
+        value: v,
+        valid: flag
+    };
+}
+
+fn test_generic_nodes() -> bool {
+    let int_node = wrap_node(100);
+    if int_node.value != 100 {
+        print("[FAIL] int_node mismatch\n");
+        return false;
+    }
+
+    let str_node = wrap_node("hello_gat_generic");
+    if !str_eq(str_node.value, "hello_gat_generic") {
+        print("[FAIL] str_node mismatch\n");
+        return false;
+    }
+
+    let nested_node = wrap_node(int_node);
+    if nested_node.value.value != 100 {
+        print("[FAIL] nested_node mismatch\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_generic_kv() -> bool {
+    let kv1 = create_kv("id_code", 4242, true);
+    if !str_eq(kv1.key, "id_code") || kv1.value != 4242 || !kv1.valid {
+        print("[FAIL] kv1 mismatch\n");
+        return false;
+    }
+
+    let kv2 = create_kv(1, "first_entry", false);
+    if kv2.key != 1 || !str_eq(kv2.value, "first_entry") || kv2.valid {
+        print("[FAIL] kv2 mismatch\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_generic_option() -> bool {
+    let opt_some = Option.Some("found_value");
+    let received = "";
+    match opt_some {
+        Option.Some(val) => {
+            received = val;
+        },
+        Option.None => {
+            print("[FAIL] Expected Some\n");
+            return false;
+        }
+    }
+
+    if !str_eq(received, "found_value") {
+        print("[FAIL] Option.Some string payload mismatch\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn main() -> i64 {
+    if !test_generic_nodes() {
+        return 1;
+    }
+    if !test_generic_kv() {
+        return 1;
+    }
+    if !test_generic_option() {
+        return 1;
+    }
+
+    print("[PASS] All uniform word-sized generic tests passed!\n");
+    return 0;
+}
