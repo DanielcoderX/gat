@@ -1,0 +1,71 @@
+// ============================================================================
+// std/math.gat - Gat Standard Library: Math Functions
+// ============================================================================
+
+fn math_abs(x: i64) -> i64 {
+    if x < 0 {
+        return 0 - x;
+    }
+    return x;
+}
+
+fn math_min(a: i64, b: i64) -> i64 {
+    if a < b {
+        return a;
+    }
+    return b;
+}
+
+fn math_max(a: i64, b: i64) -> i64 {
+    if a > b {
+        return a;
+    }
+    return b;
+}
+
+fn math_clamp(x: i64, min_v: i64, max_v: i64) -> i64 {
+    if x < min_v {
+        return min_v;
+    }
+    if x > max_v {
+        return max_v;
+    }
+    return x;
+}
+
+fn math_pow(base: i64, exp: i64) -> i64 {
+    if exp < 0 {
+        return 0;
+    }
+    if exp == 0 {
+        return 1;
+    }
+    let res: i64 = 1;
+    let b = base;
+    let e = exp;
+    while e > 0 {
+        if e % 2 == 1 {
+            res = res * b;
+        }
+        b = b * b;
+        e = e / 2;
+    }
+    return res;
+}
+
+fn math_sqrt(x: i64) -> i64 {
+    if x <= 0 {
+        return 0;
+    }
+    if x == 1 {
+        return 1;
+    }
+    let r = x / 2;
+    if r > 65536 {
+        r = 65536;
+    }
+    while r * r > x {
+        r = (r + x / r) / 2;
+    }
+    return r;
+}

@@ -1,0 +1,11 @@
+// ============================================================================
+// std/process.gat - Gat Standard Library: Process & System Utilities
+// ============================================================================
+
+fn proc_exit(code: i64) {
+    exit_process(code);
+}
+
+fn proc_get_pid() -> i64 {
+    return get_pid();
+}

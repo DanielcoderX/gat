@@ -1,0 +1,86 @@
+// Test Extended Standard Library (std/math.gat, std/fs.gat, std/process.gat)
+
+import "std/math.gat";
+import "std/fs.gat";
+import "std/process.gat";
+
+fn test_math() -> bool {
+    if math_abs(0 - 50) != 50 { return false; }
+    if math_abs(50) != 50 { return false; }
+    if math_min(10, 20) != 10 { return false; }
+    if math_max(10, 20) != 20 { return false; }
+    if math_clamp(5, 10, 20) != 10 { return false; }
+    if math_clamp(25, 10, 20) != 20 { return false; }
+    if math_clamp(15, 10, 20) != 15 { return false; }
+    if math_pow(2, 10) != 1024 { return false; }
+    if math_pow(3, 4) != 81 { return false; }
+    if math_sqrt(100) != 10 { return false; }
+    if math_sqrt(81) != 9 { return false; }
+    if math_sqrt(2) != 1 { return false; }
+    return true;
+}
+
+fn test_fs() -> bool {
+    let tmp_file = "bin/test_fs_temp.txt";
+    let test_str = "Hello from Gat std/fs!";
+    
+    let written = fs_write_all(tmp_file, test_str);
+    if !written {
+        print("[FAIL] fs_write_all failed\n");
+        return false;
+    }
+
+    if !fs_exists(tmp_file) {
+        print("[FAIL] fs_exists returned false\n");
+        return false;
+    }
+
+    let read_back = fs_read_all(tmp_file);
+    if !str_eq(read_back, test_str) {
+        print("[FAIL] fs_read_all mismatch: ", read_back, "\n");
+        return false;
+    }
+
+    let sz = fs_file_size(tmp_file);
+    if sz != str_len(test_str) {
+        print("[FAIL] fs_file_size mismatch: ", sz, "\n");
+        return false;
+    }
+
+    let deleted = fs_delete_file(tmp_file);
+    if !deleted {
+        print("[FAIL] fs_delete_file failed\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_proc() -> bool {
+    let pid = proc_get_pid();
+    if pid <= 0 {
+        print("[FAIL] proc_get_pid returned invalid PID: ", pid, "\n");
+        return false;
+    }
+    return true;
+}
+
+fn main() -> i64 {
+    if !test_math() {
+        print("[FAIL] Math tests failed\n");
+        return 1;
+    }
+
+    if !test_fs() {
+        print("[FAIL] File system tests failed\n");
+        return 1;
+    }
+
+    if !test_proc() {
+        print("[FAIL] Process tests failed\n");
+        return 1;
+    }
+
+    print("[PASS] Extended standard library tests passed!\n");
+    return 0;
+}

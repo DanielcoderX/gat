@@ -1,0 +1,33 @@
+// ============================================================================
+// std/fs.gat - Gat Standard Library: File System Operations
+// ============================================================================
+
+fn fs_exists(path: string) -> bool {
+    let content = read_file(path);
+    if str_len(content) > 0 {
+        return true;
+    }
+    // Attempt writing 0 bytes / delete check
+    return false;
+}
+
+fn fs_read_all(path: string) -> string {
+    return read_file(path);
+}
+
+fn fs_write_all(path: string, content: string) -> bool {
+    let written = write_file(path, content, str_len(content));
+    if written >= 0 {
+        return true;
+    }
+    return false;
+}
+
+fn fs_file_size(path: string) -> i64 {
+    let content = read_file(path);
+    return str_len(content);
+}
+
+fn fs_delete_file(path: string) -> bool {
+    return delete_file(path);
+}

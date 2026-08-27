@@ -611,6 +611,33 @@ fn cg_emit_runtime(cg: CodeGen) {
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xE9); bb_write_u8(cg.code, 0x10); // rcx = ptr - 16
     cg_call_sym(cg, "__gat_free_mem");
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 17. __gat_delete_file(rcx: path) -> rax (bool)
+    cg_define_sym(cg, "__gat_delete_file");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x30);
+    cg_call_iat(cg, "DeleteFileA");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC0);
+    bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x95); bb_write_u8(cg.code, 0xC0); // setnz al
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0xB6); bb_write_u8(cg.code, 0xC0); // movzx rax, al
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 18. __gat_get_pid() -> rax (i64)
+    cg_define_sym(cg, "__gat_get_pid");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x30);
+    cg_call_iat(cg, "GetCurrentProcessId");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 19. __gat_exit_process(rcx: code)
+    cg_define_sym(cg, "__gat_exit_process");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x30);
+    cg_call_iat(cg, "ExitProcess");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
 }
 
 // Emit function machine instructions
@@ -805,6 +832,9 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             let callee = inst.str_val;
             if str_eq(callee, "read_file") { callee = "__gat_read_file"; }
             else if str_eq(callee, "write_file") { callee = "__gat_write_file"; }
+            else if str_eq(callee, "delete_file") { callee = "__gat_delete_file"; }
+            else if str_eq(callee, "get_pid") { callee = "__gat_get_pid"; }
+            else if str_eq(callee, "exit_process") { callee = "__gat_exit_process"; }
             else if str_eq(callee, "alloc_mem") { callee = "__gat_alloc_mem"; }
             else if str_eq(callee, "free_mem") { callee = "__gat_free_mem"; }
             else if str_eq(callee, "str_len") { callee = "__gat_str_len"; }
