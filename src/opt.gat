@@ -2,6 +2,10 @@
 // src/opt.gat - Intermediate Representation Optimizer Pass
 // ============================================================================
 
+// ----------------------------------------------------------------------------
+// 1. Constant Folding & Propagation Pass
+// ----------------------------------------------------------------------------
+
 fn opt_constant_fold(fn_obj: IRFunc) {
     let size = (fn_obj.max_local + 64) * 8;
     let is_const: raw i64 = alloc_mem(size);
@@ -131,7 +135,12 @@ fn opt_constant_fold(fn_obj: IRFunc) {
     }
 }
 
-fn opt_dead_code_elim(fn_obj: IRFunc) {
+// ----------------------------------------------------------------------------
+// 2. Dead Code Elimination (DCE) Pass
+// ----------------------------------------------------------------------------
+
+fn opt_dead_code_eliminate(fn_obj: IRFunc) {
+    // 2.1 Unreachable code elimination
     let cur = fn_obj.inst_head;
     let unreachable: i64 = 0;
 
@@ -145,11 +154,138 @@ fn opt_dead_code_elim(fn_obj: IRFunc) {
         }
         cur = cur.next;
     }
+
+    // 2.2 Iterated dead value elimination (fixed-point up to 10 iterations)
+    let max_idx = fn_obj.max_local + 64;
+    let uses_size = max_idx * 8;
+    let uses: raw i64 = alloc_mem(uses_size);
+
+    let iter = 0;
+    while iter < 10 {
+        let i: i64 = 0;
+        while i < max_idx {
+            uses[i] = 0;
+            i = i + 1;
+        }
+
+        // Count uses of each virtual register
+        let inst = fn_obj.inst_head;
+        while inst != nil {
+            let op = inst.op;
+            if op != 0 {
+                if op == IR_OP_COPY || op == IR_OP_UN_OP || op == IR_OP_LOAD ||
+                   op == IR_OP_PRINT || op == IR_OP_RETAIN || op == IR_OP_RELEASE ||
+                   op == IR_OP_RETURN || op == IR_OP_BRANCH {
+                    if inst.src1 > 0 && inst.src1 < max_idx {
+                        uses[inst.src1] = uses[inst.src1] + 1;
+                    }
+                } else if op == IR_OP_BIN_OP || op == IR_OP_LOAD_INDEX {
+                    if inst.src1 > 0 && inst.src1 < max_idx {
+                        uses[inst.src1] = uses[inst.src1] + 1;
+                    }
+                    if inst.src2 > 0 && inst.src2 < max_idx {
+                        uses[inst.src2] = uses[inst.src2] + 1;
+                    }
+                } else if op == IR_OP_STORE {
+                    // STORE uses inst.dest as object base and inst.src1 as value
+                    if inst.dest > 0 && inst.dest < max_idx {
+                        uses[inst.dest] = uses[inst.dest] + 1;
+                    }
+                    if inst.src1 > 0 && inst.src1 < max_idx {
+                        uses[inst.src1] = uses[inst.src1] + 1;
+                    }
+                } else if op == IR_OP_STORE_INDEX {
+                    // STORE_INDEX uses inst.dest as array base, inst.src2 as index, inst.src1 as value
+                    if inst.dest > 0 && inst.dest < max_idx {
+                        uses[inst.dest] = uses[inst.dest] + 1;
+                    }
+                    if inst.src2 > 0 && inst.src2 < max_idx {
+                        uses[inst.src2] = uses[inst.src2] + 1;
+                    }
+                    if inst.src1 > 0 && inst.src1 < max_idx {
+                        uses[inst.src1] = uses[inst.src1] + 1;
+                    }
+                } else if op == IR_OP_CALL {
+                    if inst.arg_count >= 1 && inst.src1 > 0 && inst.src1 < max_idx {
+                        uses[inst.src1] = uses[inst.src1] + 1;
+                    }
+                    if inst.arg_count >= 2 && inst.src2 > 0 && inst.src2 < max_idx {
+                        uses[inst.src2] = uses[inst.src2] + 1;
+                    }
+                    if inst.arg_count >= 3 && inst.offset > 0 && inst.offset < max_idx {
+                        uses[inst.offset] = uses[inst.offset] + 1;
+                    }
+                    if inst.arg_count >= 4 && inst.int_val > 0 && inst.int_val < max_idx {
+                        uses[inst.int_val] = uses[inst.int_val] + 1;
+                    }
+                    if inst.arg_count >= 5 && inst.extra > 0 && inst.extra < max_idx {
+                        uses[inst.extra] = uses[inst.extra] + 1;
+                    }
+                }
+            }
+            inst = inst.next;
+        }
+
+        // Eliminate pure instructions whose dest has 0 uses
+        let changed = 0;
+        inst = fn_obj.inst_head;
+        while inst != nil {
+            let op = inst.op;
+            if op == IR_OP_CONST_INT || op == IR_OP_CONST_STR || op == IR_OP_CONST_BOOL ||
+               op == IR_OP_COPY || op == IR_OP_BIN_OP || op == IR_OP_UN_OP {
+                if inst.dest > 0 && inst.dest < max_idx {
+                    if uses[inst.dest] == 0 {
+                        inst.op = 0; // eliminate dead pure instruction
+                        changed = 1;
+                    }
+                }
+            }
+            inst = inst.next;
+        }
+
+        if changed == 0 {
+            break;
+        }
+        iter = iter + 1;
+    }
 }
+
+// ----------------------------------------------------------------------------
+// 3. ARC Retain / Release Elision Pass
+// ----------------------------------------------------------------------------
+
+fn opt_arc_elide(fn_obj: IRFunc) {
+    let inst = fn_obj.inst_head;
+    while inst != nil {
+        if inst.op == IR_OP_RETAIN {
+            let reg = inst.src1;
+            if reg > 0 {
+                // Look ahead to see if the next active instruction is an immediate matching RELEASE
+                let next_inst = inst.next;
+                while next_inst != nil && next_inst.op == 0 {
+                    next_inst = next_inst.next;
+                }
+                if next_inst != nil {
+                    if next_inst.op == IR_OP_RELEASE && next_inst.src1 == reg {
+                        // Safe to elide: retain immediately followed by release on same register
+                        inst.op = 0;
+                        next_inst.op = 0;
+                    }
+                }
+            }
+        }
+        inst = inst.next;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 4. Function & Program Optimization Pipeline
+// ----------------------------------------------------------------------------
 
 fn opt_optimize_function(fn_obj: IRFunc) {
     opt_constant_fold(fn_obj);
-    opt_dead_code_elim(fn_obj);
+    opt_dead_code_eliminate(fn_obj);
+    opt_arc_elide(fn_obj);
 }
 
 fn opt_optimize_program(ir_ctx: IRContext) {

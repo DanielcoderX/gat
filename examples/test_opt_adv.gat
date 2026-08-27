@@ -1,0 +1,58 @@
+// ============================================================================
+// examples/test_opt_adv.gat - Advanced Optimizer Pass Tests (DCE & ARC)
+// ============================================================================
+
+class Resource {
+    id: i64;
+
+    deinit {
+        print("[deinit] Resource freed: id = ", self.id, "\n");
+    }
+}
+
+fn test_dce_pure_values() -> i64 {
+    // Dead computations that must be eliminated without altering return value
+    let dead1 = 100 * 20 + 5;
+    let dead2 = dead1 * 2;
+    let dead_str = "unused_dead_string";
+    let dead_bool = !false && true;
+
+    let live = 42;
+    return live;
+}
+
+fn test_dce_unreachable() -> i64 {
+    let result = 100;
+    return result;
+
+    // Unreachable code below must be completely eliminated
+    let unreachable_var = 999;
+    print("[FAIL] Unreachable code executed!\n");
+    return unreachable_var;
+}
+
+fn test_arc_lifecycle() {
+    print("--- Scope: Allocating Resource 10 ---\n");
+    let r = new Resource { id: 10 };
+    print("Resource 10 allocated.\n");
+    print("--- Exiting scope (Resource 10 deinit should fire) ---\n");
+}
+
+fn main() -> i64 {
+    let v1 = test_dce_pure_values();
+    if v1 != 42 {
+        print("[FAIL] Dead code elimination altered live value: ", v1, "\n");
+        return 1;
+    }
+
+    let v2 = test_dce_unreachable();
+    if v2 != 100 {
+        print("[FAIL] Unreachable code return mismatch: ", v2, "\n");
+        return 1;
+    }
+
+    test_arc_lifecycle();
+
+    print("[PASS] Advanced DCE and ARC optimizer test passed!\n");
+    return 0;
+}
