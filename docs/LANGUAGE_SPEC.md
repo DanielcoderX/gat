@@ -113,17 +113,32 @@ let result = apply(double_num, 21); // 42
 ## 4. Memory Model & ARC
 
 ### 4.1 Header Layout
-All heap-allocated objects (classes, strings, arrays) are prefixed with a 16-byte metadata header:
+All heap-allocated objects (classes, strings, arrays) are prefixed with a 24-byte metadata header:
 ```
-Offset -16: [ ref_count : i64 ]   (64-bit reference counter)
-Offset  -8: [ type_tag  : i64 ]   (64-bit type discriminator / size)
-Offset   0: [ User Payload    ]   <-- Object pointer returned to user
+Offset -24: [ strong_count : i64 ]   (64-bit strong reference counter)
+Offset -16: [ weak_count   : i64 ]   (64-bit weak reference counter)
+Offset  -8: [ type_tag     : i64 ]   (64-bit type discriminator / size)
+Offset   0: [ User Payload       ]   <-- Object pointer returned to user
 ```
 
 ### 4.2 Retain & Release Semantics
-- **Allocation**: `new Class { ... }` or `alloc_mem(sz)` initializes `ref_count = 1`.
-- **Retain**: Passing or assigning heap references invokes `__gat_retain` (`inc qword ptr [ptr-16]`).
-- **Release**: Exiting lexical scopes or reassignment invokes `__gat_release` (`dec qword ptr [ptr-16]`). When `ref_count == 0`, memory is freed via the OS heap manager.
+- **Allocation**: `new Class { ... }` or `alloc_mem(sz)` initializes `strong_count = 1, weak_count = 0`.
+- **Strong Retain**: Passing or assigning heap references invokes `__gat_retain` (`inc qword ptr [ptr-24]`).
+- **Strong Release**: Reassignment or explicit release invokes `__gat_release` (`dec qword ptr [ptr-24]`). When `strong_count == 0`, deterministically runs `deinit` and releases child references. If `weak_count == 0`, immediately deallocates backing memory.
+- **Weak Retain / Release**: Creating a `weak T` reference increments `weak_count` (`[ptr-16]`). Dropping a `weak T` reference decrements `weak_count`. If both `strong_count == 0` and `weak_count == 0`, backing memory is freed.
+
+### 4.3 Weak References & Cycle Breaking (`weak T`)
+Reference cycles (such as parent-child tree links or doubly linked lists) are resolved using `weak T` back-references:
+- **Modifier**: `weak T` represents a non-owning reference to a class `T`.
+- **Creation**: `weak_from(obj)` creates a `weak T` and increments `weak_count`.
+- **Upgrade**: `weak_upgrade(w: weak T) -> Option<T>` atomically inspects `strong_count`. If alive (`> 0`), retains and returns `Option.Some(obj)`. If dead (`== 0`), returns `Option.None`.
+
+```gat
+class Node {
+    next: Node;
+    prev: weak Node; // Back-pointer does not keep parent alive, preventing cycle leak
+}
+```
 
 ---
 

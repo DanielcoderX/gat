@@ -59,6 +59,7 @@ let TOK_FAT_ARROW: i64 = 58;
 let TOK_FOR: i64 = 59;
 let TOK_IN: i64 = 60;
 let TOK_DOTDOT: i64 = 61;
+let TOK_WEAK: i64 = 62;
 
 fn token_kind_name(kind: i64) -> string {
     if kind == TOK_EOF { return "end of file"; }
@@ -77,6 +78,7 @@ fn token_kind_name(kind: i64) -> string {
     if kind == TOK_WHILE { return "while"; }
     if kind == TOK_NEW { return "new"; }
     if kind == TOK_RAW { return "raw"; }
+    if kind == TOK_WEAK { return "weak"; }
     if kind == TOK_PRINT { return "print"; }
     if kind == TOK_TRUE { return "true"; }
     if kind == TOK_FALSE { return "false"; }
@@ -173,6 +175,8 @@ let IR_OP_JUMP: i64 = 19;
 let IR_OP_LABEL: i64 = 20;
 let IR_OP_CONST_FN: i64 = 21;
 let IR_OP_CALL_INDIRECT: i64 = 22;
+let IR_OP_WEAK_RETAIN: i64 = 23;
+let IR_OP_WEAK_RELEASE: i64 = 24;
 
 // Type Kinds
 let TYPE_VOID: i64 = 0;
@@ -183,4 +187,5 @@ let TYPE_STRUCT: i64 = 4;
 let TYPE_CLASS: i64 = 5;
 let TYPE_RAW: i64 = 6;
 let TYPE_FN: i64 = 7;
+let TYPE_WEAK: i64 = 8;
 

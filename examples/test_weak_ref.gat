@@ -1,0 +1,208 @@
+// ============================================================================
+// examples/test_weak_ref.gat - Weak References & Cycle Breakers Test Suite
+// ============================================================================
+
+import "std/option.gat";
+import "std/weak.gat";
+import "std/str.gat";
+
+class Node {
+    val: i64;
+    next: Node;
+    prev: weak Node;
+}
+
+class Parent {
+    id: i64;
+    child: Child;
+}
+
+class Child {
+    id: i64;
+    parent: weak Parent;
+}
+
+fn test_basic_weak_and_counts() -> bool {
+    print("--- 1. Testing Basic Weak Reference & Counts ---\n");
+    let n = new Node {
+        val: 100,
+        next: nil,
+        prev: nil
+    };
+
+    if strong_count(n) != 1 {
+        print("[FAIL] initial strong_count != 1\n");
+        return false;
+    }
+    if weak_count(n) != 0 {
+        print("[FAIL] initial weak_count != 0\n");
+        return false;
+    }
+
+    let w: weak Node = weak_from(n);
+    if strong_count(n) != 1 {
+        print("[FAIL] strong_count after weak_from != 1\n");
+        return false;
+    }
+    if weak_count(n) != 1 {
+        print("[FAIL] weak_count after weak_from != 1\n");
+        return false;
+    }
+    if !weak_is_alive(w) {
+        print("[FAIL] weak_is_alive expected true\n");
+        return false;
+    }
+
+    weak_release(w);
+    if weak_count(n) != 0 {
+        print("[FAIL] weak_count after weak_release != 0\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_weak_upgrade_alive() -> bool {
+    print("--- 2. Testing weak_upgrade When Target Is Alive ---\n");
+    let p = new Parent {
+        id: 777,
+        child: nil
+    };
+
+    let w: weak Parent = weak_from(p);
+    let opt_p = weak_upgrade(w);
+
+    if !option_is_some(opt_p) {
+        print("[FAIL] weak_upgrade returned None for alive object\n");
+        return false;
+    }
+
+    let upgraded = option_unwrap(opt_p);
+    if upgraded.id != 777 {
+        print("[FAIL] upgraded object id != 777\n");
+        return false;
+    }
+
+    weak_release(w);
+    return true;
+}
+
+fn create_weak_and_drop_strong() -> weak Parent {
+    let p = new Parent {
+        id: 999,
+        child: nil
+    };
+    let w: weak Parent = weak_from(p);
+    strong_release(p);
+    return w;
+}
+
+fn test_weak_upgrade_dead() -> bool {
+    print("--- 3. Testing weak_upgrade When Strong Count Is 0 ---\n");
+    let w = create_weak_and_drop_strong();
+
+    if weak_is_alive(w) {
+        print("[FAIL] weak_is_alive returned true for dead object\n");
+        return false;
+    }
+
+    let opt_p = weak_upgrade(w);
+    if !option_is_none(opt_p) {
+        print("[FAIL] weak_upgrade expected None for dead object\n");
+        return false;
+    }
+
+    // Now release the remaining weak reference (frees backing memory)
+    weak_release(w);
+    return true;
+}
+
+fn test_cycle_breaking() -> bool {
+    print("--- 4. Testing Parent/Child Cycle Breaking ---\n");
+    let p = new Parent {
+        id: 1,
+        child: nil
+    };
+    let c = new Child {
+        id: 2,
+        parent: nil
+    };
+
+    p.child = c;
+    c.parent = weak_from(p);
+
+    if strong_count(p) != 1 || weak_count(p) != 1 {
+        print("[FAIL] parent counts incorrect in cycle\n");
+        return false;
+    }
+    if strong_count(c) != 1 || weak_count(c) != 0 {
+        print("[FAIL] child counts incorrect in cycle: strong=", strong_count(c), " weak=", weak_count(c), "\n");
+        return false;
+    }
+
+    let p_up = weak_upgrade(c.parent);
+    if !option_is_some(p_up) {
+        print("[FAIL] could not upgrade child.parent\n");
+        return false;
+    }
+    let p_unwrapped = option_unwrap(p_up);
+    if p_unwrapped.id != 1 {
+        print("[FAIL] upgraded parent id != 1\n");
+        return false;
+    }
+
+    weak_release(c.parent);
+    return true;
+}
+
+fn test_stress_cycles() -> bool {
+    print("--- 5. Stress Testing 10,000 Cycle Allocations ---\n");
+    let i = 0;
+    while i < 10000 {
+        let p = new Parent {
+            id: i,
+            child: nil
+        };
+        let c = new Child {
+            id: i + 1,
+            parent: weak_from(p)
+        };
+        p.child = c;
+        let opt = weak_upgrade(c.parent);
+        if !option_is_some(opt) {
+            print("[FAIL] stress cycle upgrade failed at iter ", i, "\n");
+            return false;
+        }
+        weak_release(c.parent);
+        i = i + 1;
+    }
+    print("  -> Completed 10,000 cycle iterations with zero corruption!\n");
+    return true;
+}
+
+fn main() -> i64 {
+    print("=== Reference Cycle Collection & Weak References Test ===\n");
+
+    if !test_basic_weak_and_counts() {
+        return 1;
+    }
+
+    if !test_weak_upgrade_alive() {
+        return 1;
+    }
+
+    if !test_weak_upgrade_dead() {
+        return 1;
+    }
+
+    if !test_cycle_breaking() {
+        return 1;
+    }
+
+    if !test_stress_cycles() {
+        return 1;
+    }
+
+    print("[PASS] All weak reference and cycle tests passed successfully!\n");
+    return 0;
+}

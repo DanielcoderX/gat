@@ -284,6 +284,8 @@ fn get_const_val(name: string) -> i64 {
     if str_eq(name, "IR_OP_LABEL") { return 20; }
     if str_eq(name, "IR_OP_CONST_FN") { return 21; }
     if str_eq(name, "IR_OP_CALL_INDIRECT") { return 22; }
+    if str_eq(name, "IR_OP_WEAK_RETAIN") { return 23; }
+    if str_eq(name, "IR_OP_WEAK_RELEASE") { return 24; }
 
     if str_eq(name, "TYPE_VOID") { return 0; }
     if str_eq(name, "TYPE_INT") { return 1; }
@@ -293,6 +295,7 @@ fn get_const_val(name: string) -> i64 {
     if str_eq(name, "TYPE_CLASS") { return 5; }
     if str_eq(name, "TYPE_RAW") { return 6; }
     if str_eq(name, "TYPE_FN") { return 7; }
+    if str_eq(name, "TYPE_WEAK") { return 8; }
 
     if str_eq(name, "PREC_LOWEST") { return 1; }
     if str_eq(name, "PREC_OR") { return 2; }
@@ -628,6 +631,9 @@ fn ir_build_stmt(ctx: IRContext, stmt: ASTNode) {
         if ti != nil {
             if ti.is_ref == 1 {
                 is_ref = 1;
+                if tc_is_weak_type(type_n) {
+                    is_ref = 2;
+                }
             }
         }
         ir_set_local(ctx, stmt.str_val, var_id, is_ref, type_n);

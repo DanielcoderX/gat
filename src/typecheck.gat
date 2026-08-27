@@ -92,11 +92,23 @@ fn tc_get_func_sig(tc: TypeChecker, fn_name: string) -> string {
     return "fn";
 }
 
+fn tc_is_weak_type(t_name: string) -> bool {
+    if str_len(t_name) >= 5 {
+        return str_eq(str_sub(t_name, 0, 5), "weak ");
+    }
+    return false;
+}
+
 fn tc_find_type(tc: TypeChecker, name: string) -> TypeInfo {
     let t_name = name;
     if str_len(t_name) > 4 {
         if str_eq(str_sub(t_name, 0, 4), "raw ") {
             t_name = str_sub(t_name, 4, str_len(t_name) - 4);
+        }
+    }
+    if str_len(t_name) > 5 {
+        if str_eq(str_sub(t_name, 0, 5), "weak ") {
+            t_name = str_sub(t_name, 5, str_len(t_name) - 5);
         }
     }
     let cur = tc.types_head;
@@ -129,7 +141,12 @@ fn tc_is_builtin(name: string) -> bool {
        str_eq(name, "exec_cmd") || str_eq(name, "exit_process") || str_eq(name, "get_pid") ||
        str_eq(name, "file_size") || str_eq(name, "__gat_delete_file") || str_eq(name, "__gat_get_pid") ||
        str_eq(name, "__gat_exit_process") || str_eq(name, "__gat_exec_cmd") ||
-       str_eq(name, "__gat_get_temp_dir") || str_eq(name, "__gat_sleep") {
+       str_eq(name, "__gat_get_temp_dir") || str_eq(name, "__gat_sleep") ||
+       str_eq(name, "strong_retain") || str_eq(name, "strong_release") ||
+       str_eq(name, "weak_retain") || str_eq(name, "weak_release") ||
+       str_eq(name, "strong_count") || str_eq(name, "weak_count") ||
+       str_eq(name, "__gat_weak_retain") || str_eq(name, "__gat_weak_release") ||
+       str_eq(name, "__gat_strong_count") || str_eq(name, "__gat_weak_count") {
         return true;
     }
     return false;

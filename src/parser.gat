@@ -86,6 +86,9 @@ fn parse_type_name(p: Parser) -> string {
     if parser_cur_is(p, TOK_RAW) {
         parser_next_token(p);
         t_name = str_concat("raw ", p.cur_tok.lit);
+    } else if parser_cur_is(p, TOK_WEAK) {
+        parser_next_token(p);
+        t_name = str_concat("weak ", p.cur_tok.lit);
     } else if parser_cur_is(p, TOK_FN) {
         if parser_peek_is(p, TOK_LPAREN) {
             parser_next_token(p); // cur_tok = '('

@@ -41,7 +41,8 @@ $testCases = @(
     @{ Name = "Advanced DCE & ARC Optimizer"; File = "examples/test_opt_adv.gat"; Args = @(); Expect = "Advanced DCE and ARC optimizer test passed!"; ExpectedCode = 0 },
     @{ Name = "Linear-Scan Register Allocation"; File = "examples/test_regalloc.gat"; Args = @(); Expect = "All register allocator tests passed successfully!"; ExpectedCode = 0 },
     @{ Name = "Option, Result & Formatted Output"; File = "examples/test_result_option.gat"; Args = @(); Expect = "All Option, Result, and formatting tests passed successfully!"; ExpectedCode = 0 },
-    @{ Name = "First-Class Functions & Function Pointers"; File = "examples/test_first_class_fn.gat"; Args = @(); Expect = "All first-class function tests passed successfully!"; ExpectedCode = 0 }
+    @{ Name = "First-Class Functions & Function Pointers"; File = "examples/test_first_class_fn.gat"; Args = @(); Expect = "All first-class function tests passed successfully!"; ExpectedCode = 0 },
+    @{ Name = "Weak References & Cycle Collection"; File = "examples/test_weak_ref.gat"; Args = @(); Expect = "All weak reference and cycle tests passed successfully!"; ExpectedCode = 0 }
 )
 
 $passed = 0

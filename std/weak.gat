@@ -1,0 +1,46 @@
+// ============================================================================
+// std/weak.gat - Weak References & Cycle Breakers
+// ============================================================================
+
+import "std/option.gat";
+
+fn weak_from<T>(obj: T) -> weak T {
+    if obj != nil {
+        weak_retain(obj);
+    }
+    return obj;
+}
+
+fn weak_upgrade<T>(w: weak T) -> Option<T> {
+    if w == nil {
+        return option_none();
+    }
+    let sc = strong_count(w);
+    if sc > 0 {
+        strong_retain(w);
+        let obj: T = w;
+        return option_some(obj);
+    }
+    return option_none();
+}
+
+fn weak_is_alive<T>(w: weak T) -> bool {
+    if w == nil {
+        return false;
+    }
+    return strong_count(w) > 0;
+}
+
+fn weak_get_weak_count<T>(w: weak T) -> i64 {
+    if w == nil {
+        return 0;
+    }
+    return weak_count(w);
+}
+
+fn weak_get_strong_count<T>(w: weak T) -> i64 {
+    if w == nil {
+        return 0;
+    }
+    return strong_count(w);
+}

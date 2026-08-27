@@ -651,7 +651,7 @@ fn cg_emit_runtime(cg: CodeGen) {
     cg_define_sym(cg, "__gat_retain");
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC9);
     bb_write_u8(cg.code, 0x74); bb_write_u8(cg.code, 0x04);
-    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xF0); // inc qword ptr [rcx-16]
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xE8); // inc qword ptr [rcx-24]
     bb_write_u8(cg.code, 0xC3);
 
     // 16. __gat_release(rcx: ptr)
@@ -660,15 +660,64 @@ fn cg_emit_runtime(cg: CodeGen) {
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x40);
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC9);
-    bb_write_u8(cg.code, 0x74); bb_write_u8(cg.code, 0x17); // jz +23
-    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8); // ptr
-    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0xF0); // dec [rcx-16]
-    bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0x0D); // jnz +13
-    // free memory
+    bb_write_u8(cg.code, 0x74); bb_write_u8(cg.code, 0x1E); // jz done (+30)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8); // [rbp-8] = ptr
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0xE8); // dec [rcx-24] (strong_count)
+    bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0x14); // jnz done (+20)
+    // Check if weak_count == 0
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0x79); bb_write_u8(cg.code, 0xF0); bb_write_u8(cg.code, 0x00); // cmp [rcx-16], 0
+    bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0x0D); // jnz done (+13)
+    // Both strong_count == 0 and weak_count == 0 -> free memory
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
-    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xE9); bb_write_u8(cg.code, 0x10); // rcx = ptr - 16
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xE9); bb_write_u8(cg.code, 0x18); // rcx = ptr - 24
     cg_call_sym(cg, "__gat_free_mem");
+    // done:
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // __gat_weak_retain(rcx: ptr)
+    cg_define_sym(cg, "__gat_weak_retain");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC9);
+    bb_write_u8(cg.code, 0x74); bb_write_u8(cg.code, 0x04);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xF0); // inc qword ptr [rcx-16]
+    bb_write_u8(cg.code, 0xC3);
+
+    // __gat_weak_release(rcx: ptr)
+    cg_define_sym(cg, "__gat_weak_release");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x40);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC9);
+    bb_write_u8(cg.code, 0x74); bb_write_u8(cg.code, 0x1E); // jz done (+30)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8); // [rbp-8] = ptr
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0xF0); // dec [rcx-16] (weak_count)
+    bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0x14); // jnz done (+20)
+    // Check if strong_count == 0
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0x79); bb_write_u8(cg.code, 0xE8); bb_write_u8(cg.code, 0x00); // cmp [rcx-24], 0
+    bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0x0D); // jnz done (+13)
+    // Both weak_count == 0 and strong_count == 0 -> free memory
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xE9); bb_write_u8(cg.code, 0x18); // rcx = ptr - 24
+    cg_call_sym(cg, "__gat_free_mem");
+    // done:
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // __gat_strong_count(rcx: ptr) -> rax (i64)
+    cg_define_sym(cg, "__gat_strong_count");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC9);
+    bb_write_u8(cg.code, 0x74); bb_write_u8(cg.code, 0x06);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xE8); // mov rax, [rcx-24]
+    bb_write_u8(cg.code, 0xC3);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0);
+    bb_write_u8(cg.code, 0xC3);
+
+    // __gat_weak_count(rcx: ptr) -> rax (i64)
+    cg_define_sym(cg, "__gat_weak_count");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC9);
+    bb_write_u8(cg.code, 0x74); bb_write_u8(cg.code, 0x06);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xF0); // mov rax, [rcx-16]
+    bb_write_u8(cg.code, 0xC3);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0);
+    bb_write_u8(cg.code, 0xC3);
 
     // 17. __gat_delete_file(rcx: path) -> rax (bool)
     cg_define_sym(cg, "__gat_delete_file");
@@ -1050,11 +1099,12 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             }
         } else if inst.op == IR_OP_ALLOC_HEAP {
             bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0xC1);
-            bb_write_u32(cg.code, inst.offset + 16);
+            bb_write_u32(cg.code, inst.offset + 24);
             cg_call_sym(cg, "__gat_alloc_mem");
             bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x00); bb_write_u32(cg.code, 1);
-            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x40); bb_write_u8(cg.code, 0x08); bb_write_u32(cg.code, inst.int_val);
-            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xC0); bb_write_u8(cg.code, 0x10);
+            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x40); bb_write_u8(cg.code, 0x08); bb_write_u32(cg.code, 0);
+            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x40); bb_write_u8(cg.code, 0x10); bb_write_u32(cg.code, inst.int_val);
+            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xC0); bb_write_u8(cg.code, 0x18);
             cg_mov_local_reg(cg, inst.dest, 0, ra_res);
         } else if inst.op == IR_OP_ALLOC_STACK {
             bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0xC1);
@@ -1067,6 +1117,12 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
         } else if inst.op == IR_OP_RELEASE {
             cg_mov_reg_local(cg, 1, inst.src1, ra_res);
             cg_call_sym(cg, "__gat_release");
+        } else if inst.op == IR_OP_WEAK_RETAIN {
+            cg_mov_reg_local(cg, 1, inst.src1, ra_res);
+            cg_call_sym(cg, "__gat_weak_retain");
+        } else if inst.op == IR_OP_WEAK_RELEASE {
+            cg_mov_reg_local(cg, 1, inst.src1, ra_res);
+            cg_call_sym(cg, "__gat_weak_release");
         } else if inst.op == IR_OP_CALL {
             if inst.arg_count >= 1 { cg_mov_reg_local(cg, 1, inst.src1, ra_res); }
             if inst.arg_count >= 2 { cg_mov_reg_local(cg, 2, inst.src2, ra_res); }
@@ -1094,6 +1150,12 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             else if str_eq(callee, "str_from_int") { callee = "__gat_str_from_int"; }
             else if str_eq(callee, "get_cmd_arg") { callee = "__gat_get_cmd_arg"; }
             else if str_eq(callee, "sleep") { callee = "__gat_sleep"; }
+            else if str_eq(callee, "strong_retain") { callee = "__gat_retain"; }
+            else if str_eq(callee, "strong_release") { callee = "__gat_release"; }
+            else if str_eq(callee, "weak_retain") { callee = "__gat_weak_retain"; }
+            else if str_eq(callee, "weak_release") { callee = "__gat_weak_release"; }
+            else if str_eq(callee, "strong_count") { callee = "__gat_strong_count"; }
+            else if str_eq(callee, "weak_count") { callee = "__gat_weak_count"; }
             cg_call_sym(cg, callee);
             if inst.dest != 0 {
                 cg_mov_local_reg(cg, inst.dest, 0, ra_res);
