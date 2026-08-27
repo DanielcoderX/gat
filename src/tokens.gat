@@ -171,6 +171,8 @@ let IR_OP_RETURN: i64 = 17;
 let IR_OP_BRANCH: i64 = 18;
 let IR_OP_JUMP: i64 = 19;
 let IR_OP_LABEL: i64 = 20;
+let IR_OP_CONST_FN: i64 = 21;
+let IR_OP_CALL_INDIRECT: i64 = 22;
 
 // Type Kinds
 let TYPE_VOID: i64 = 0;
@@ -180,4 +182,5 @@ let TYPE_STRING: i64 = 3;
 let TYPE_STRUCT: i64 = 4;
 let TYPE_CLASS: i64 = 5;
 let TYPE_RAW: i64 = 6;
+let TYPE_FN: i64 = 7;
 

@@ -106,6 +106,21 @@ fn ra_allocate_function(fn_obj: IRFunc) -> RegAllocResult {
                     end_idx[inst.extra] = cur_idx;
                 }
             }
+
+            if inst.op == IR_OP_CALL_INDIRECT {
+                if inst.arg_count >= 2 && inst.offset > 0 && inst.offset < max_v {
+                    if start_idx[inst.offset] == (0 - 1) { start_idx[inst.offset] = cur_idx; }
+                    end_idx[inst.offset] = cur_idx;
+                }
+                if inst.arg_count >= 3 && inst.int_val > 0 && inst.int_val < max_v {
+                    if start_idx[inst.int_val] == (0 - 1) { start_idx[inst.int_val] = cur_idx; }
+                    end_idx[inst.int_val] = cur_idx;
+                }
+                if inst.arg_count >= 4 && inst.extra > 0 && inst.extra < max_v {
+                    if start_idx[inst.extra] == (0 - 1) { start_idx[inst.extra] = cur_idx; }
+                    end_idx[inst.extra] = cur_idx;
+                }
+            }
         }
         inst = inst.next;
         cur_idx = cur_idx + 1;

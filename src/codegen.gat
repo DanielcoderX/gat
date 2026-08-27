@@ -1098,6 +1098,22 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             if inst.dest != 0 {
                 cg_mov_local_reg(cg, inst.dest, 0, ra_res);
             }
+        } else if inst.op == IR_OP_CONST_FN {
+            bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x05);
+            cg_reloc(cg, inst.str_val, 1);
+            if inst.dest != 0 {
+                cg_mov_local_reg(cg, inst.dest, 0, ra_res);
+            }
+        } else if inst.op == IR_OP_CALL_INDIRECT {
+            cg_mov_reg_local(cg, 3, inst.src1, ra_res);
+            if inst.arg_count >= 1 { cg_mov_reg_local(cg, 1, inst.src2, ra_res); }
+            if inst.arg_count >= 2 { cg_mov_reg_local(cg, 2, inst.offset, ra_res); }
+            if inst.arg_count >= 3 { cg_mov_reg_local(cg, 4, inst.int_val, ra_res); }
+            if inst.arg_count >= 4 { cg_mov_reg_local(cg, 5, inst.extra, ra_res); }
+            bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xD2);
+            if inst.dest != 0 {
+                cg_mov_local_reg(cg, inst.dest, 0, ra_res);
+            }
         } else if inst.op == IR_OP_PRINT {
             cg_mov_reg_local(cg, 1, inst.src1, ra_res);
             if inst.type_kind == TYPE_STRING {

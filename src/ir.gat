@@ -131,6 +131,8 @@ fn ir_get_expr_type(ctx: IRContext, expr: ASTNode) -> string {
     if expr.kind == AST_IDENT {
         let sym = ir_get_local(ctx, expr.str_val);
         if sym != nil { return sym.type_name; }
+        let fs = tc_find_func(ctx.tc, expr.str_val);
+        if fs != nil { return tc_get_func_sig(ctx.tc, expr.str_val); }
     } else if expr.kind == AST_MEMBER {
         let base_type = ir_get_expr_type(ctx, expr.left);
         let ti = tc_find_type(ctx.tc, base_type);
@@ -143,6 +145,12 @@ fn ir_get_expr_type(ctx: IRContext, expr: ASTNode) -> string {
         let fs = tc_find_func(ctx.tc, expr.str_val);
         if fs != nil {
             return fs.type_name;
+        }
+        let local_fn = ir_get_local(ctx, expr.str_val);
+        if local_fn != nil {
+            if tc_is_fn_type(local_fn.type_name) {
+                return tc_extract_fn_ret_type(local_fn.type_name);
+            }
         }
         let callee = expr.str_val;
         if str_eq(callee, "str_concat") || str_eq(callee, "str_sub") ||
@@ -274,6 +282,8 @@ fn get_const_val(name: string) -> i64 {
     if str_eq(name, "IR_OP_BRANCH") { return 18; }
     if str_eq(name, "IR_OP_JUMP") { return 19; }
     if str_eq(name, "IR_OP_LABEL") { return 20; }
+    if str_eq(name, "IR_OP_CONST_FN") { return 21; }
+    if str_eq(name, "IR_OP_CALL_INDIRECT") { return 22; }
 
     if str_eq(name, "TYPE_VOID") { return 0; }
     if str_eq(name, "TYPE_INT") { return 1; }
@@ -282,6 +292,7 @@ fn get_const_val(name: string) -> i64 {
     if str_eq(name, "TYPE_STRUCT") { return 4; }
     if str_eq(name, "TYPE_CLASS") { return 5; }
     if str_eq(name, "TYPE_RAW") { return 6; }
+    if str_eq(name, "TYPE_FN") { return 7; }
 
     if str_eq(name, "PREC_LOWEST") { return 1; }
     if str_eq(name, "PREC_OR") { return 2; }
@@ -339,6 +350,13 @@ fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
         let sym = ir_get_local(ctx, expr.str_val);
         if sym != nil {
             return sym.offset;
+        }
+        let fn_sym = tc_find_func(ctx.tc, expr.str_val);
+        if fn_sym != nil {
+            let dest = ir_alloc_val(ctx);
+            let inst = ir_emit(ctx, IR_OP_CONST_FN, dest, 0);
+            inst.str_val = expr.str_val;
+            return dest;
         }
         return 0;
     }
@@ -437,6 +455,22 @@ fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
             count = count + 1;
             arg = arg.next;
         }
+
+        let local_fn = ir_get_local(ctx, expr.str_val);
+        if local_fn != nil {
+            if tc_find_func(ctx.tc, expr.str_val) == nil {
+                let fn_ptr_val = local_fn.offset;
+                let dest = ir_alloc_val(ctx);
+                let inst = ir_emit(ctx, IR_OP_CALL_INDIRECT, dest, fn_ptr_val);
+                inst.src2 = a1;
+                inst.offset = a2;
+                inst.int_val = a3;
+                inst.extra = a4;
+                inst.arg_count = count;
+                return dest;
+            }
+        }
+
         let dest = ir_alloc_val(ctx);
         let inst = ir_emit(ctx, IR_OP_CALL, dest, a1);
         inst.src2 = a2;
@@ -466,10 +500,10 @@ fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
             }
         }
         let obj = ir_build_expr(ctx, expr.left);
+        let dest = ir_alloc_val(ctx);
         let base_type = ir_get_expr_type(ctx, expr.left);
         let ti = tc_find_type(ctx.tc, base_type);
         let offset = tc_get_field_offset(ti, expr.str_val);
-        let dest = ir_alloc_val(ctx);
         let inst = ir_emit(ctx, IR_OP_LOAD, dest, obj);
         inst.offset = offset;
         return dest;
@@ -526,6 +560,7 @@ fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
             inst.str_val = expr.type_name;
             if ti != nil { inst.offset = ti.size; }
         }
+
         // Initialize fields
         let init = expr.child;
         while init != nil {
@@ -574,6 +609,11 @@ fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
 
 fn ir_build_stmt(ctx: IRContext, stmt: ASTNode) {
     if stmt == nil { return; }
+
+    if stmt.kind == AST_EXPR_STMT {
+        ir_build_expr(ctx, stmt.left);
+        return;
+    }
 
     if stmt.kind == AST_LET_STMT {
         let val = ir_build_expr(ctx, stmt.left);

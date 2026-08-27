@@ -73,3 +73,14 @@ fn result_unwrap_err<T, E>(res: Result<T, E>) -> E {
         }
     }
 }
+
+fn result_map<T, E, U>(res: Result<T, E>, f: fn(T) -> U) -> Result<U, E> {
+    match res {
+        Result.Ok(val) => {
+            return result_ok(f(val));
+        },
+        Result.Err(err) => {
+            return result_err(err);
+        }
+    }
+}

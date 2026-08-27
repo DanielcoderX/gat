@@ -86,6 +86,35 @@ fn parse_type_name(p: Parser) -> string {
     if parser_cur_is(p, TOK_RAW) {
         parser_next_token(p);
         t_name = str_concat("raw ", p.cur_tok.lit);
+    } else if parser_cur_is(p, TOK_FN) {
+        if parser_peek_is(p, TOK_LPAREN) {
+            parser_next_token(p); // cur_tok = '('
+            let fn_sig = "fn(";
+            if !parser_peek_is(p, TOK_RPAREN) {
+                parser_next_token(p);
+                let p1 = parse_type_name(p);
+                fn_sig = str_concat(fn_sig, p1);
+                while parser_peek_is(p, TOK_COMMA) {
+                    parser_next_token(p); // cur_tok = ','
+                    parser_next_token(p); // cur_tok = next type
+                    let p_next = parse_type_name(p);
+                    fn_sig = str_concat(fn_sig, ",");
+                    fn_sig = str_concat(fn_sig, p_next);
+                }
+            }
+            if !parser_expect_peek(p, TOK_RPAREN) { return "fn"; }
+            fn_sig = str_concat(fn_sig, ")");
+            if parser_peek_is(p, TOK_ARROW) {
+                parser_next_token(p); // cur_tok = '->'
+                parser_next_token(p); // cur_tok = ret type
+                let ret_t = parse_type_name(p);
+                fn_sig = str_concat(fn_sig, "->");
+                fn_sig = str_concat(fn_sig, ret_t);
+            } else {
+                fn_sig = str_concat(fn_sig, "->void");
+            }
+            return fn_sig;
+        }
     }
     if parser_peek_is(p, TOK_LT) {
         parser_next_token(p); // '<'

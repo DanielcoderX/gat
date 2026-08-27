@@ -13,6 +13,7 @@ class TypeChecker {
     funcs_head: Symbol;
     funcs_tail: Symbol;
     had_error: i64;
+    fn_sigs_head: Symbol;
 }
 
 fn tc_new() -> TypeChecker {
@@ -22,7 +23,8 @@ fn tc_new() -> TypeChecker {
         type_id_seq: 1,
         funcs_head: nil,
         funcs_tail: nil,
-        had_error: 0
+        had_error: 0,
+        fn_sigs_head: nil
     };
 
     tc_add_primitive(tc, "void", TYPE_VOID, 0);
@@ -58,6 +60,36 @@ fn tc_add_primitive(tc: TypeChecker, name: string, kind: i64, size: i64) {
         tc.types_tail.next = ti;
         tc.types_tail = ti;
     }
+}
+
+fn tc_is_fn_type(t_name: string) -> bool {
+    if str_len(t_name) >= 3 {
+        return str_eq(str_sub(t_name, 0, 3), "fn(");
+    }
+    return false;
+}
+
+fn tc_extract_fn_ret_type(fn_sig: string) -> string {
+    let len = str_len(fn_sig);
+    let i = 0;
+    while i < len - 1 {
+        if str_char(fn_sig, i) == 45 && str_char(fn_sig, i + 1) == 62 { // "->"
+            return str_sub(fn_sig, i + 2, len - (i + 2));
+        }
+        i = i + 1;
+    }
+    return "void";
+}
+
+fn tc_get_func_sig(tc: TypeChecker, fn_name: string) -> string {
+    let cur = tc.fn_sigs_head;
+    while cur != nil {
+        if str_eq(cur.name, fn_name) {
+            return cur.type_name;
+        }
+        cur = cur.next;
+    }
+    return "fn";
 }
 
 fn tc_find_type(tc: TypeChecker, name: string) -> TypeInfo {
@@ -110,13 +142,20 @@ fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
         if str_len(ret_type) == 0 {
             ret_type = "i64";
         }
-        // Count parameters
+        // Count parameters and build canonical function signature
         let p_count: i64 = 0;
+        let sig_str = "fn(";
         let p = decl.left;
         while p != nil {
+            let pt = p.type_name;
+            if str_len(pt) == 0 { pt = "i64"; }
+            if p_count > 0 { sig_str = str_concat(sig_str, ","); }
+            sig_str = str_concat(sig_str, pt);
             p_count = p_count + 1;
             p = p.next;
         }
+        sig_str = str_concat(sig_str, ")->");
+        sig_str = str_concat(sig_str, ret_type);
 
         let fn_sym = new Symbol {
             name: decl.str_val,
@@ -134,6 +173,17 @@ fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
             tc.funcs_tail.next = fn_sym;
             tc.funcs_tail = fn_sym;
         }
+
+        let sig_node = new Symbol {
+            name: decl.str_val,
+            type_kind: TYPE_FN,
+            type_name: sig_str,
+            is_ref: 0,
+            size: 8,
+            offset: p_count,
+            next: tc.fn_sigs_head
+        };
+        tc.fn_sigs_head = sig_node;
         return;
     }
 
@@ -299,7 +349,10 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
             cur = cur.next;
         }
         // Check global functions or types
-        if tc_find_func(tc, expr.str_val) != nil { return "fn"; }
+        let fn_sym = tc_find_func(tc, expr.str_val);
+        if fn_sym != nil {
+            return tc_get_func_sig(tc, expr.str_val);
+        }
         if tc_find_type(tc, expr.str_val) != nil { return expr.str_val; }
         if tc_is_builtin(expr.str_val) { return "fn"; }
         return "i64";
@@ -309,6 +362,23 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
         let fn_name = expr.str_val;
         let fn_sym = tc_find_func(tc, fn_name);
         if fn_sym == nil && !tc_is_builtin(fn_name) {
+            // Check if fn_name is a local variable holding a function pointer
+            let cur = locals;
+            let found_local_fn: Symbol = nil;
+            while cur != nil {
+                if str_eq(cur.name, fn_name) && tc_is_fn_type(cur.type_name) {
+                    found_local_fn = cur;
+                }
+                cur = cur.next;
+            }
+            if found_local_fn != nil {
+                let a = expr.child;
+                while a != nil {
+                    tc_check_expr(tc, a, locals);
+                    a = a.next;
+                }
+                return tc_extract_fn_ret_type(found_local_fn.type_name);
+            }
             // If not found in types/funcs/builtins, check if enum constructor or method (contains '.')
             if !tc_has_dot(fn_name) {
                 let msg = str_concat("call to undeclared function '", fn_name);

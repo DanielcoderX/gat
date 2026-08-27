@@ -89,6 +89,25 @@ fn make_pair<T, U>(a: T, b: U) -> Pair<T, U> {
 }
 ```
 
+### 3.4 Function Types & First-Class Functions
+Gat supports **first-class function values (function pointers)**:
+- **Type Syntax**: `fn(ParamType1, ParamType2, ...) -> ReturnType`
+- **Function Values**: Top-level function declarations can be referenced as values without call parentheses (`let f = add;`).
+- **Indirect Calls**: Functions stored in variables, passed as arguments, or stored as struct/class fields are called indirectly via machine code `call reg` (Windows fastcall ABI compliant).
+- **Zero Overhead**: Function values are represented as 64-bit code addresses requiring no runtime allocations or ARC tracking.
+
+```gat
+fn apply<T, U>(f: fn(T) -> U, val: T) -> U {
+    return f(val);
+}
+
+fn double_num(x: i64) -> i64 {
+    return x * 2;
+}
+
+let result = apply(double_num, 21); // 42
+```
+
 ---
 
 ## 4. Memory Model & ARC

@@ -20,7 +20,7 @@ fn opt_constant_fold(fn_obj: IRFunc) {
 
     let inst = fn_obj.inst_head;
     while inst != nil {
-        if inst.op == IR_OP_LABEL || inst.op == IR_OP_CALL || inst.op == IR_OP_JUMP || inst.op == IR_OP_BRANCH {
+        if inst.op == IR_OP_LABEL || inst.op == IR_OP_CALL || inst.op == IR_OP_CALL_INDIRECT || inst.op == IR_OP_JUMP || inst.op == IR_OP_BRANCH {
             // Reset known constants across control flow and call boundaries
             let j: i64 = 0;
             while j < fn_obj.max_local + 64 {

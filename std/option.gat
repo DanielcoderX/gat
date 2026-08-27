@@ -60,3 +60,14 @@ fn option_unwrap_or<T>(opt: Option<T>, default_val: T) -> T {
         }
     }
 }
+
+fn option_map<T, U>(opt: Option<T>, f: fn(T) -> U) -> Option<U> {
+    match opt {
+        Option.Some(val) => {
+            return option_some(f(val));
+        },
+        Option.None => {
+            return option_none();
+        }
+    }
+}

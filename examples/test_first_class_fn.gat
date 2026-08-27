@@ -1,0 +1,186 @@
+// ============================================================================
+// examples/test_first_class_fn.gat - First-Class Functions Test Suite
+// ============================================================================
+
+import "std/option.gat";
+import "std/result.gat";
+import "std/str.gat";
+
+fn add(a: i64, b: i64) -> i64 {
+    return a + b;
+}
+
+fn mul(a: i64, b: i64) -> i64 {
+    return a * b;
+}
+
+fn sub(a: i64, b: i64) -> i64 {
+    return a - b;
+}
+
+fn square(x: i64) -> i64 {
+    return x * x;
+}
+
+fn double_val(x: i64) -> i64 {
+    return x * 2;
+}
+
+fn is_even(x: i64) -> bool {
+    return (x % 2) == 0;
+}
+
+fn apply_bin_op(op: fn(i64, i64) -> i64, a: i64, b: i64) -> i64 {
+    return op(a, b);
+}
+
+fn apply_predicate(pred: fn(i64) -> bool, val: i64) -> bool {
+    return pred(val);
+}
+
+fn get_math_op(kind: i64) -> fn(i64, i64) -> i64 {
+    if kind == 1 {
+        return add;
+    } else if kind == 2 {
+        return mul;
+    }
+    return sub;
+}
+
+class OperationHolder {
+    name: string;
+    op: fn(i64, i64) -> i64;
+}
+
+fn test_basic_fn_ptr() -> bool {
+    print("--- 1. Testing Basic Function Pointers ---\n");
+    let f1: fn(i64, i64) -> i64 = add;
+    let res1 = f1(15, 27);
+    if res1 != 42 {
+        print("[FAIL] res1 expected 42, got ", res1, "\n");
+        return false;
+    }
+
+    let f2 = mul;
+    let res2 = f2(6, 7);
+    if res2 != 42 {
+        print("[FAIL] res2 expected 42, got ", res2, "\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_higher_order_passing() -> bool {
+    print("--- 2. Testing Passing Functions as Arguments ---\n");
+    let sum = apply_bin_op(add, 100, 250);
+    if sum != 350 {
+        print("[FAIL] sum expected 350, got ", sum, "\n");
+        return false;
+    }
+
+    let prod = apply_bin_op(mul, 12, 12);
+    if prod != 144 {
+        print("[FAIL] prod expected 144, got ", prod, "\n");
+        return false;
+    }
+
+    let even = apply_predicate(is_even, 42);
+    let odd = apply_predicate(is_even, 43);
+    if !even || odd {
+        print("[FAIL] predicate check failed\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_return_function() -> bool {
+    print("--- 3. Testing Returning Functions from Functions ---\n");
+    let op_add = get_math_op(1);
+    let op_mul = get_math_op(2);
+    let op_sub = get_math_op(3);
+
+    if op_add(10, 5) != 15 { return false; }
+    if op_mul(10, 5) != 50 { return false; }
+    if op_sub(10, 5) != 5 { return false; }
+
+    return true;
+}
+
+fn test_struct_with_fn() -> bool {
+    print("--- 4. Testing Function Pointer in Class/Struct ---\n");
+    let h = new OperationHolder {
+        name: "multiplier",
+        op: mul
+    };
+
+    let f = h.op;
+    let r = f(7, 8);
+    if r != 56 {
+        print("[FAIL] holder op expected 56, got ", r, "\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_stdlib_option_result_map() -> bool {
+    print("--- 5. Testing Stdlib Option & Result Combinators ---\n");
+    let some_num = option_some(10);
+    let mapped_some = option_map(some_num, double_val);
+    if !option_is_some(mapped_some) || option_unwrap(mapped_some) != 20 {
+        print("[FAIL] option_map on Some failed\n");
+        return false;
+    }
+
+    let none_num: Option<i64> = option_none();
+    let mapped_none = option_map(none_num, double_val);
+    if !option_is_none(mapped_none) {
+        print("[FAIL] option_map on None failed\n");
+        return false;
+    }
+
+    let ok_res = result_ok(8);
+    let mapped_ok = result_map(ok_res, square);
+    if !result_is_ok(mapped_ok) || result_unwrap(mapped_ok) != 64 {
+        print("[FAIL] result_map on Ok failed\n");
+        return false;
+    }
+
+    let err_res: Result<i64, string> = result_err("file not found");
+    let mapped_err = result_map(err_res, square);
+    if !result_is_err(mapped_err) || !str_eq(result_unwrap_err(mapped_err), "file not found") {
+        print("[FAIL] result_map on Err failed\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn main() -> i64 {
+    print("=== First-Class Functions & Function Pointers Test ===\n");
+
+    if !test_basic_fn_ptr() {
+        return 1;
+    }
+
+    if !test_higher_order_passing() {
+        return 1;
+    }
+
+    if !test_return_function() {
+        return 1;
+    }
+
+    if !test_struct_with_fn() {
+        return 1;
+    }
+
+    if !test_stdlib_option_result_map() {
+        return 1;
+    }
+
+    print("[PASS] All first-class function tests passed successfully!\n");
+    return 0;
+}
