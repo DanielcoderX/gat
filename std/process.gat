@@ -2,6 +2,10 @@
 // std/process.gat - Gat Standard Library: Process & System Utilities
 // ============================================================================
 
+fn proc_exec(cmd: string) -> i64 {
+    return exec_cmd(cmd);
+}
+
 fn proc_exit(code: i64) {
     exit_process(code);
 }

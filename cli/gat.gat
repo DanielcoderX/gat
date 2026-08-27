@@ -110,9 +110,9 @@ fn run_run() -> i64 {
         return 1;
     }
 
-    print("[gat] Running ", temp_out, "...\n");
-    // Execution will run temp_out
-    return 0;
+    let exit_code = proc_exec(temp_out);
+    fs_delete_file(temp_out);
+    return exit_code;
 }
 
 fn run_fmt() -> i64 {

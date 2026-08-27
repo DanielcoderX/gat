@@ -638,6 +638,72 @@ fn cg_emit_runtime(cg: CodeGen) {
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x30);
     cg_call_iat(cg, "ExitProcess");
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 20. __gat_exec_cmd(rcx: cmd) -> rax (exit_code)
+    cg_define_sym(cg, "__gat_exec_cmd");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x81); bb_write_u8(cg.code, 0xEC); bb_write_u32(cg.code, 0x120);
+    // [rbp - 8] = cmd
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+
+    // Zero out 104 bytes for STARTUPINFOA at [rbp - 0x80]
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x7D); bb_write_u8(cg.code, 0x80);
+    bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0);
+    bb_write_u8(cg.code, 0xB9); bb_write_u32(cg.code, 26);
+    bb_write_u8(cg.code, 0xF3); bb_write_u8(cg.code, 0xAB);
+    // si.cb = 104 at [rbp - 0x80]
+    bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0x80); bb_write_u32(cg.code, 104);
+
+    // Zero out 24 bytes for PROCESS_INFORMATION at [rbp - 0xA0]
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x7D); bb_write_u8(cg.code, 0x60);
+    bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0);
+    bb_write_u8(cg.code, 0xB9); bb_write_u32(cg.code, 6);
+    bb_write_u8(cg.code, 0xF3); bb_write_u8(cg.code, 0xAB);
+
+    // CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)
+    bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC9);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0);
+    bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC9);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x44); bb_write_u8(cg.code, 0x24); bb_write_u8(cg.code, 0x20); bb_write_u32(cg.code, 0);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x44); bb_write_u8(cg.code, 0x24); bb_write_u8(cg.code, 0x28); bb_write_u32(cg.code, 0);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x44); bb_write_u8(cg.code, 0x24); bb_write_u8(cg.code, 0x30); bb_write_u32(cg.code, 0);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x44); bb_write_u8(cg.code, 0x24); bb_write_u8(cg.code, 0x38); bb_write_u32(cg.code, 0);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0x80);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x44); bb_write_u8(cg.code, 0x24); bb_write_u8(cg.code, 0x40);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0x60);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x44); bb_write_u8(cg.code, 0x24); bb_write_u8(cg.code, 0x48);
+    cg_call_iat(cg, "CreateProcessA");
+
+    bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC0);
+    bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0x0A);
+    // failed: return 1
+    bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 1);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // WaitForSingleObject(pi.hProcess [rbp-0xA0], INFINITE 0xFFFFFFFF)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x60);
+    bb_write_u8(cg.code, 0xBA); bb_write_u32(cg.code, 0xFFFFFFFF);
+    cg_call_iat(cg, "WaitForSingleObject");
+
+    // GetExitCodeProcess(pi.hProcess, &exit_code [rbp-0xA8])
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x60);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0x58);
+    cg_call_iat(cg, "GetExitCodeProcess");
+
+    // CloseHandle(pi.hProcess)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x60);
+    cg_call_iat(cg, "CloseHandle");
+
+    // CloseHandle(pi.hThread [rbp-0x98])
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x68);
+    cg_call_iat(cg, "CloseHandle");
+
+    // return exit_code
+    bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0x58);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0xB6); bb_write_u8(cg.code, 0xC0);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
 }
 
 // Emit function machine instructions
@@ -835,6 +901,7 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             else if str_eq(callee, "delete_file") { callee = "__gat_delete_file"; }
             else if str_eq(callee, "get_pid") { callee = "__gat_get_pid"; }
             else if str_eq(callee, "exit_process") { callee = "__gat_exit_process"; }
+            else if str_eq(callee, "exec_cmd") { callee = "__gat_exec_cmd"; }
             else if str_eq(callee, "alloc_mem") { callee = "__gat_alloc_mem"; }
             else if str_eq(callee, "free_mem") { callee = "__gat_free_mem"; }
             else if str_eq(callee, "str_len") { callee = "__gat_str_len"; }

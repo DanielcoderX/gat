@@ -152,7 +152,8 @@ fn ir_get_expr_type(ctx: IRContext, expr: ASTNode) -> string {
         } else if str_eq(callee, "str_eq") || str_eq(callee, "delete_file") {
             return "bool";
         } else if str_eq(callee, "str_len") || str_eq(callee, "str_char") ||
-                  str_eq(callee, "alloc_mem") || str_eq(callee, "get_pid") {
+                  str_eq(callee, "alloc_mem") || str_eq(callee, "get_pid") ||
+                  str_eq(callee, "exec_cmd") {
             return "i64";
         }
     } else if expr.kind == AST_ARRAY_LIT {
