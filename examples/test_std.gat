@@ -23,7 +23,8 @@ fn test_string_builder() {
     let trimmed = str_trim("   lots of whitespace   ");
     print("Trimmed: [", trimmed, "]\n");
 
-    let num = str_parse_int("-9876");
+    let num_res = str_parse_int("-9876");
+    let num = result_unwrap(num_res);
     print("Parsed int: ", num, "\n");
 
     let sw = str_starts_with("compiler.gat", "comp");
@@ -78,9 +79,11 @@ fn test_io() {
 
     let test_file = "tmp_std_io_test.txt";
     let ok = io_write_text(test_file, "Standard Library IO Test Content\n");
-    if ok {
-        let content = io_read_text(test_file);
+    if result_is_ok(ok) {
+        let content_res = io_read_text(test_file);
+        let content = result_unwrap(content_res);
         print("Read back content: ", content);
+        delete_file(test_file);
     }
 }
 

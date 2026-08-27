@@ -1,0 +1,75 @@
+// ============================================================================
+// std/result.gat - Result<T, E> Type & Combinators
+// ============================================================================
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E)
+}
+
+fn result_ok<T, E>(val: T) -> Result<T, E> {
+    return Result.Ok(val);
+}
+
+fn result_err<T, E>(err: E) -> Result<T, E> {
+    return Result.Err(err);
+}
+
+fn result_is_ok<T, E>(res: Result<T, E>) -> bool {
+    match res {
+        Result.Ok(val) => {
+            return true;
+        },
+        Result.Err(err) => {
+            return false;
+        }
+    }
+}
+
+fn result_is_err<T, E>(res: Result<T, E>) -> bool {
+    match res {
+        Result.Ok(val) => {
+            return false;
+        },
+        Result.Err(err) => {
+            return true;
+        }
+    }
+}
+
+fn result_unwrap<T, E>(res: Result<T, E>) -> T {
+    match res {
+        Result.Ok(val) => {
+            return val;
+        },
+        Result.Err(err) => {
+            print("[Panic] Called result_unwrap on Result.Err: ", err, "\n");
+            exit_process(1);
+            return nil;
+        }
+    }
+}
+
+fn result_unwrap_or<T, E>(res: Result<T, E>, default_val: T) -> T {
+    match res {
+        Result.Ok(val) => {
+            return val;
+        },
+        Result.Err(err) => {
+            return default_val;
+        }
+    }
+}
+
+fn result_unwrap_err<T, E>(res: Result<T, E>) -> E {
+    match res {
+        Result.Ok(val) => {
+            print("[Panic] Called result_unwrap_err on Result.Ok\n");
+            exit_process(1);
+            return nil;
+        },
+        Result.Err(err) => {
+            return err;
+        }
+    }
+}

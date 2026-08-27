@@ -26,7 +26,7 @@ fn test_fs() -> bool {
     fs_delete_file(tmp_file);
     
     let written = fs_write_all(tmp_file, test_str);
-    if !written {
+    if result_is_err(written) {
         print("[FAIL] fs_write_all failed\n");
         return false;
     }
@@ -36,7 +36,12 @@ fn test_fs() -> bool {
         return false;
     }
 
-    let read_back = fs_read_all(tmp_file);
+    let read_res = fs_read_all(tmp_file);
+    if result_is_err(read_res) {
+        print("[FAIL] fs_read_all failed with error\n");
+        return false;
+    }
+    let read_back = result_unwrap(read_res);
     if !str_eq(read_back, test_str) {
         print("[FAIL] fs_read_all mismatch: ", read_back, "\n");
         return false;

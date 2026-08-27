@@ -1,0 +1,62 @@
+// ============================================================================
+// std/option.gat - Option<T> Type & Combinators
+// ============================================================================
+
+enum Option<T> {
+    None,
+    Some(T)
+}
+
+fn option_some<T>(val: T) -> Option<T> {
+    return Option.Some(val);
+}
+
+fn option_none<T>() -> Option<T> {
+    return Option.None;
+}
+
+fn option_is_some<T>(opt: Option<T>) -> bool {
+    match opt {
+        Option.Some(val) => {
+            return true;
+        },
+        Option.None => {
+            return false;
+        }
+    }
+}
+
+fn option_is_none<T>(opt: Option<T>) -> bool {
+    match opt {
+        Option.Some(val) => {
+            return false;
+        },
+        Option.None => {
+            return true;
+        }
+    }
+}
+
+fn option_unwrap<T>(opt: Option<T>) -> T {
+    match opt {
+        Option.Some(val) => {
+            return val;
+        },
+        Option.None => {
+            print("[Panic] Called option_unwrap on Option.None\n");
+            exit_process(1);
+            return nil;
+        }
+    }
+}
+
+fn option_unwrap_or<T>(opt: Option<T>, default_val: T) -> T {
+    match opt {
+        Option.Some(val) => {
+            return val;
+        },
+        Option.None => {
+            return default_val;
+        }
+    }
+}

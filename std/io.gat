@@ -1,22 +1,36 @@
-// ============================================================================
-// std/io.gat - File and Path I/O Utilities
-// ============================================================================
-
 import "std/str.gat";
+import "std/result.gat";
 
-fn io_read_text(path: string) -> string {
-    return read_file(path);
+fn io_read_text(path: string) -> Result<string, string> {
+    if str_len(path) == 0 {
+        return Result.Err("empty path");
+    }
+    let content = read_file(path);
+    if str_len(content) == 0 {
+        return Result.Err("file not found or empty");
+    }
+    return Result.Ok(content);
 }
 
-fn io_write_text(path: string, content: string) -> bool {
+fn io_write_text(path: string, content: string) -> Result<i64, string> {
+    if str_len(path) == 0 {
+        return Result.Err("empty path");
+    }
     let len = str_len(content);
-    let p: raw i8 = content;
-    let written = write_file(path, p, len);
-    return written > 0;
+    let written = write_file(path, content, len);
+    if written < 0 {
+        return Result.Err("failed to write file");
+    }
+    return Result.Ok(written);
 }
 
-fn io_append_text(path: string, content: string) -> bool {
-    let existing = read_file(path);
+fn io_append_text(path: string, content: string) -> Result<i64, string> {
+    let existing_res = io_read_text(path);
+    let existing = "";
+    match existing_res {
+        Result.Ok(val) => { existing = val; },
+        Result.Err(err) => { existing = ""; }
+    }
     let full = str_concat(existing, content);
     return io_write_text(path, full);
 }

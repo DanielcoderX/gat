@@ -399,8 +399,9 @@ fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
             if ti != nil {
                 let tag_val = tc_get_field_offset(ti, var_n);
                 let dest = ir_alloc_val(ctx);
-                let alloc_inst = ir_emit(ctx, IR_OP_ALLOC_STACK, dest, 0);
+                let alloc_inst = ir_emit(ctx, IR_OP_ALLOC_HEAP, dest, 0);
                 alloc_inst.offset = ti.size;
+                alloc_inst.int_val = ti.type_id;
                 let tag_const = ir_alloc_val(ctx);
                 let ci = ir_emit(ctx, IR_OP_CONST_INT, tag_const, 0);
                 ci.int_val = tag_val;
@@ -453,8 +454,9 @@ fn ir_build_expr(ctx: IRContext, expr: ASTNode) -> i64 {
             if enum_ti != nil {
                 let tag_val = tc_get_field_offset(enum_ti, expr.str_val);
                 let dest = ir_alloc_val(ctx);
-                let alloc_inst = ir_emit(ctx, IR_OP_ALLOC_STACK, dest, 0);
+                let alloc_inst = ir_emit(ctx, IR_OP_ALLOC_HEAP, dest, 0);
                 alloc_inst.offset = enum_ti.size;
+                alloc_inst.int_val = enum_ti.type_id;
                 let tag_const = ir_alloc_val(ctx);
                 let ci = ir_emit(ctx, IR_OP_CONST_INT, tag_const, 0);
                 ci.int_val = tag_val;

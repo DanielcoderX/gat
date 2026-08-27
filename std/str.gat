@@ -130,15 +130,25 @@ fn str_index_of(s: string, ch: i64) -> i64 {
     return 0 - 1;
 }
 
-fn str_parse_int(s: string) -> i64 {
+import "std/result.gat";
+
+fn str_parse_int(s: string) -> Result<i64, string> {
+    if s == nil {
+        return Result.Err("null string");
+    }
     let len = str_len(s);
-    if len == 0 { return 0; }
+    if len == 0 {
+        return Result.Err("empty string");
+    }
     let result: i64 = 0;
     let sign: i64 = 1;
     let i: i64 = 0;
     if str_char(s, 0) == 45 { // '-'
         sign = 0 - 1;
         i = 1;
+        if len == 1 {
+            return Result.Err("invalid integer literal '-'");
+        }
     }
     while i < len {
         let ch = str_char(s, i);
@@ -146,10 +156,134 @@ fn str_parse_int(s: string) -> i64 {
             result = result * 10 + (ch - 48);
             i = i + 1;
         } else {
-            i = len;
+            return Result.Err("invalid non-digit character");
         }
     }
-    return result * sign;
+    return Result.Ok(result * sign);
+}
+
+fn format1(fmt: string, a: string) -> string {
+    let sb = sb_new(str_len(fmt) + str_len(a));
+    let len = str_len(fmt);
+    let i: i64 = 0;
+    let replaced: i64 = 0;
+    while i < len {
+        let ch = str_char(fmt, i);
+        let handled: i64 = 0;
+        if ch == 123 {
+            if i + 1 < len {
+                if str_char(fmt, i + 1) == 125 {
+                    if replaced == 0 {
+                        sb_append(sb, a);
+                        replaced = 1;
+                    }
+                    i = i + 2;
+                    handled = 1;
+                }
+            }
+        }
+        if handled == 0 {
+            sb_append_char(sb, ch);
+            i = i + 1;
+        }
+    }
+    return sb_to_string(sb);
+}
+
+fn format2(fmt: string, a: string, b: string) -> string {
+    let sb = sb_new(str_len(fmt) + str_len(a) + str_len(b));
+    let len = str_len(fmt);
+    let i: i64 = 0;
+    let arg_idx: i64 = 0;
+    while i < len {
+        let ch = str_char(fmt, i);
+        let handled: i64 = 0;
+        if ch == 123 {
+            if i + 1 < len {
+                if str_char(fmt, i + 1) == 125 {
+                    if arg_idx == 0 {
+                        sb_append(sb, a);
+                    } else if arg_idx == 1 {
+                        sb_append(sb, b);
+                    }
+                    arg_idx = arg_idx + 1;
+                    i = i + 2;
+                    handled = 1;
+                }
+            }
+        }
+        if handled == 0 {
+            sb_append_char(sb, ch);
+            i = i + 1;
+        }
+    }
+    return sb_to_string(sb);
+}
+
+fn format3(fmt: string, a: string, b: string, c: string) -> string {
+    let sb = sb_new(str_len(fmt) + str_len(a) + str_len(b) + str_len(c));
+    let len = str_len(fmt);
+    let i: i64 = 0;
+    let arg_idx: i64 = 0;
+    while i < len {
+        let ch = str_char(fmt, i);
+        let handled: i64 = 0;
+        if ch == 123 {
+            if i + 1 < len {
+                if str_char(fmt, i + 1) == 125 {
+                    if arg_idx == 0 {
+                        sb_append(sb, a);
+                    } else if arg_idx == 1 {
+                        sb_append(sb, b);
+                    } else if arg_idx == 2 {
+                        sb_append(sb, c);
+                    }
+                    arg_idx = arg_idx + 1;
+                    i = i + 2;
+                    handled = 1;
+                }
+            }
+        }
+        if handled == 0 {
+            sb_append_char(sb, ch);
+            i = i + 1;
+        }
+    }
+    return sb_to_string(sb);
+}
+
+fn format4(fmt: string, a: string, b: string, c: string, d: string) -> string {
+    let sb = sb_new(str_len(fmt) + str_len(a) + str_len(b) + str_len(c) + str_len(d));
+    let len = str_len(fmt);
+    let i: i64 = 0;
+    let arg_idx: i64 = 0;
+    while i < len {
+        let ch = str_char(fmt, i);
+        let handled: i64 = 0;
+        if ch == 123 {
+            if i + 1 < len {
+                if str_char(fmt, i + 1) == 125 {
+                    if arg_idx == 0 {
+                        sb_append(sb, a);
+                    } else if arg_idx == 1 {
+                        sb_append(sb, b);
+                    } else if arg_idx == 2 {
+                        sb_append(sb, c);
+                    } else if arg_idx == 3 {
+                        sb_append(sb, d);
+                    }
+                    arg_idx = arg_idx + 1;
+                    i = i + 2;
+                    handled = 1;
+                }
+            }
+        }
+        if handled == 0 {
+            sb_append_char(sb, ch);
+            i = i + 1;
+        }
+    }
+    return sb_to_string(sb);
 }
 
 fn is_ws(ch: i64) -> bool {

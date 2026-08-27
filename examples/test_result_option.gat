@@ -1,0 +1,199 @@
+// ============================================================================
+// examples/test_result_option.gat - Option, Result & Formatted Output Test
+// ============================================================================
+
+import "std/option.gat";
+import "std/result.gat";
+import "std/str.gat";
+import "std/fs.gat";
+
+fn test_option_basic() -> bool {
+    let some_val = option_some(42);
+    let none_val: Option<i64> = option_none();
+
+    if !option_is_some(some_val) || option_is_none(some_val) {
+        print("[FAIL] option_is_some / option_is_none on Some failed\n");
+        return false;
+    }
+
+    if option_is_some(none_val) || !option_is_none(none_val) {
+        print("[FAIL] option_is_some / option_is_none on None failed\n");
+        return false;
+    }
+
+    if option_unwrap(some_val) != 42 {
+        print("[FAIL] option_unwrap failed\n");
+        return false;
+    }
+
+    if option_unwrap_or(some_val, 100) != 42 {
+        print("[FAIL] option_unwrap_or on Some failed\n");
+        return false;
+    }
+
+    if option_unwrap_or(none_val, 100) != 100 {
+        print("[FAIL] option_unwrap_or on None failed\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_result_basic() -> bool {
+    let ok_res = result_ok(999);
+    let err_res: Result<i64, string> = result_err("operation_failed");
+
+    if !result_is_ok(ok_res) || result_is_err(ok_res) {
+        print("[FAIL] result_is_ok / result_is_err on Ok failed\n");
+        return false;
+    }
+
+    if result_is_ok(err_res) || !result_is_err(err_res) {
+        print("[FAIL] result_is_ok / result_is_err on Err failed\n");
+        return false;
+    }
+
+    if result_unwrap(ok_res) != 999 {
+        print("[FAIL] result_unwrap on Ok failed\n");
+        return false;
+    }
+
+    if result_unwrap_or(ok_res, 0) != 999 {
+        print("[FAIL] result_unwrap_or on Ok failed\n");
+        return false;
+    }
+
+    if result_unwrap_or(err_res, 50) != 50 {
+        print("[FAIL] result_unwrap_or on Err failed\n");
+        return false;
+    }
+
+    if !str_eq(result_unwrap_err(err_res), "operation_failed") {
+        print("[FAIL] result_unwrap_err failed\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_str_parse_int_result() -> bool {
+    let p1 = str_parse_int("12345");
+    if !result_is_ok(p1) || result_unwrap(p1) != 12345 {
+        print("[FAIL] str_parse_int valid positive failed\n");
+        return false;
+    }
+
+    let p2 = str_parse_int("-6789");
+    if !result_is_ok(p2) || result_unwrap(p2) != (0 - 6789) {
+        print("[FAIL] str_parse_int valid negative failed\n");
+        return false;
+    }
+
+    let p3 = str_parse_int("0");
+    if !result_is_ok(p3) || result_unwrap(p3) != 0 {
+        print("[FAIL] str_parse_int zero failed\n");
+        return false;
+    }
+
+    // Invalid inputs must return Result.Err
+    let p_empty = str_parse_int("");
+    if !result_is_err(p_empty) {
+        print("[FAIL] str_parse_int empty string should return Err\n");
+        return false;
+    }
+
+    let p_dash = str_parse_int("-");
+    if !result_is_err(p_dash) {
+        print("[FAIL] str_parse_int lone dash should return Err\n");
+        return false;
+    }
+
+    let p_letters = str_parse_int("abc");
+    if !result_is_err(p_letters) {
+        print("[FAIL] str_parse_int letters should return Err\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn test_fs_result() -> bool {
+    let invalid_read = fs_read_all("non_existent_file_987654321.xyz");
+    if !result_is_err(invalid_read) {
+        print("[FAIL] fs_read_all on missing file should return Err\n");
+        return false;
+    }
+
+    let test_file = "bin/test_res_fs.txt";
+    fs_delete_file(test_file);
+
+    let write_res = fs_write_all(test_file, "Result FS Test");
+    if !result_is_ok(write_res) {
+        print("[FAIL] fs_write_all failed\n");
+        return false;
+    }
+
+    let read_res = fs_read_all(test_file);
+    if !result_is_ok(read_res) || !str_eq(result_unwrap(read_res), "Result FS Test") {
+        print("[FAIL] fs_read_all content mismatch\n");
+        return false;
+    }
+
+    fs_delete_file(test_file);
+    return true;
+}
+
+fn test_formatted_output() -> bool {
+    let f1 = format1("Hello, {}!", "World");
+    if !str_eq(f1, "Hello, World!") {
+        print("[FAIL] format1 mismatch: ", f1, "\n");
+        return false;
+    }
+
+    let f2 = format2("User {} logged in from {}", "Alice", "127.0.0.1");
+    if !str_eq(f2, "User Alice logged in from 127.0.0.1") {
+        print("[FAIL] format2 mismatch: ", f2, "\n");
+        return false;
+    }
+
+    let f3 = format3("{}: {} (status: {})", "WARN", "Disk full", "CRITICAL");
+    if !str_eq(f3, "WARN: Disk full (status: CRITICAL)") {
+        print("[FAIL] format3 mismatch: ", f3, "\n");
+        return false;
+    }
+
+    let f4 = format4("a={}, b={}, c={}, d={}", "1", "2", "3", "4");
+    if !str_eq(f4, "a=1, b=2, c=3, d=4") {
+        print("[FAIL] format4 mismatch: ", f4, "\n");
+        return false;
+    }
+
+    return true;
+}
+
+fn main() -> i64 {
+    print("=== Option, Result & Formatted Output Test ===\n");
+
+    if !test_option_basic() {
+        return 1;
+    }
+
+    if !test_result_basic() {
+        return 1;
+    }
+
+    if !test_str_parse_int_result() {
+        return 1;
+    }
+
+    if !test_fs_result() {
+        return 1;
+    }
+
+    if !test_formatted_output() {
+        return 1;
+    }
+
+    print("[PASS] All Option, Result, and formatting tests passed successfully!\n");
+    return 0;
+}

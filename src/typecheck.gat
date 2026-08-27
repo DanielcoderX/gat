@@ -197,9 +197,9 @@ fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
     if decl.kind == AST_ENUM_DECL {
         let ti = new TypeInfo {
             name: decl.str_val,
-            kind: TYPE_STRUCT,
+            kind: TYPE_CLASS,
             size: 64,
-            is_ref: 0,
+            is_ref: 1,
             type_id: tc.type_id_seq,
             fields: nil,
             deinit_fn: "",

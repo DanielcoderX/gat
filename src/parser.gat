@@ -102,9 +102,16 @@ fn str_has_interpolation(raw_str: string) -> bool {
     while i < len {
         if str_char(raw_str, i) == 123 { // '{'
             let j = i + 1;
-            while j < len {
-                if str_char(raw_str, j) == 125 { // '}'
-                    return true;
+            let done = 0;
+            while j < len && done == 0 {
+                let c = str_char(raw_str, j);
+                if c == 123 {
+                    done = 1;
+                } else if c == 125 {
+                    done = 1;
+                    if j > (i + 1) {
+                        return true;
+                    }
                 }
                 j = j + 1;
             }
