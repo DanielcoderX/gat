@@ -27,18 +27,29 @@ fn compile_to_binary(src_path: string, out_path: string) -> bool {
     let l = lexer_new(src);
     let p = parser_new(l);
     let raw_prog = parse_program(p);
+    if p.had_error == 1 || raw_prog == nil {
+        return false;
+    }
 
     let loaded_files = new FileList {
         path: src_path,
         next: nil
     };
     let prog = resolve_imports(raw_prog, loaded_files);
+    if prog == nil {
+        return false;
+    }
 
     let tc = tc_new();
     let d = prog.child;
     while d != nil {
         tc_register_decl(tc, d);
         d = d.next;
+    }
+
+    tc_check_program(tc, prog);
+    if tc.had_error == 1 {
+        return false;
     }
 
     let ir_ctx = ir_new(tc);
@@ -146,17 +157,12 @@ fn run_fmt() -> i64 {
         return 1;
     }
 
-    // Basic indentation & trailing whitespace cleanup
-    let lines = str_split(src, "\n");
     let sb = sb_new(str_len(src) + 64);
+    let len = str_len(src);
     let i = 0;
-    while i < lines.len {
-        let line = lines.get(i);
-        let trimmed = str_trim(line);
-        if str_len(trimmed) > 0 {
-            sb_append(sb, trimmed);
-        }
-        sb_append(sb, "\n");
+    while i < len {
+        let ch = str_char(src, i);
+        sb_append_char(sb, ch);
         i = i + 1;
     }
 

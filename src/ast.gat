@@ -40,6 +40,8 @@ class Parser {
     lex: Lexer;
     cur_tok: Token;
     peek_tok: Token;
+    had_error: i64;
+    context: string;
 }
 
 class Symbol {

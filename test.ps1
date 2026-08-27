@@ -78,4 +78,46 @@ foreach ($t in $testCases) {
     $passed++
 }
 
-Write-Host "`nAll $passed/$($testCases.Count) tests passed successfully on pure Gat compiler!" -ForegroundColor Green
+Write-Host "`n[4/4] Running Diagnostic Error Quality Negative Tests..." -ForegroundColor Cyan
+
+$negativeTests = @(
+    @{ Name = "Syntax Error (Missing Colon in Parameter)"; File = "examples/errors/err_syntax_missing_colon.gat"; ExpectErr = "[Parser Error] line 1:13: expected ':', got 'i64' (identifier)" },
+    @{ Name = "Semantic Error (Undeclared Function)"; File = "examples/errors/err_type_undeclared_fn.gat"; ExpectErr = "[Type Error] call to undeclared function 'non_existent_function_12345'" },
+    @{ Name = "Semantic Error (Arity Mismatch)"; File = "examples/errors/err_type_arity.gat"; ExpectErr = "[Type Error] function 'add' expects 2 arguments, got 3" },
+    @{ Name = "Semantic Error (Invalid Struct Member)"; File = "examples/errors/err_type_field.gat"; ExpectErr = "[Type Error] type 'Point' has no field named 'z'" },
+    @{ Name = "Semantic Error (Void Function Returning Value)"; File = "examples/errors/err_type_void_return.gat"; ExpectErr = "[Type Error] void function 'do_work' cannot return a value" }
+)
+
+$negPassed = 0
+foreach ($nt in $negativeTests) {
+    $outBin = "bin\test_err_out.exe"
+    if (Test-Path $outBin) { Remove-Item -Force $outBin }
+
+    $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+    $pinfo.FileName = (Resolve-Path "bin\gatc.exe").Path
+    $pinfo.Arguments = "$($nt.File) -o $outBin"
+    $pinfo.RedirectStandardOutput = $true
+    $pinfo.RedirectStandardError = $true
+    $pinfo.UseShellExecute = $false
+    $pinfo.CreateNoWindow = $true
+
+    $proc = [System.Diagnostics.Process]::Start($pinfo)
+    $output = $proc.StandardOutput.ReadToEnd() + $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+    $exitCode = $proc.ExitCode
+
+    if ($exitCode -eq 0) {
+        Write-Host "  [FAIL] $($nt.Name): Expected compilation to fail, but succeeded with code 0" -ForegroundColor Red
+        exit 1
+    }
+
+    if (-not $output.Contains($nt.ExpectErr)) {
+        Write-Host "  [FAIL] $($nt.Name): Expected error string '$($nt.ExpectErr)' not found in output:`n$output" -ForegroundColor Red
+        exit 1
+    }
+
+    Write-Host "  [PASS] $($nt.Name) (rejected cleanly with expected diagnostic)" -ForegroundColor Green
+    $negPassed++
+}
+
+Write-Host "`nAll $passed positive tests and $negPassed negative diagnostic tests passed successfully!" -ForegroundColor Green

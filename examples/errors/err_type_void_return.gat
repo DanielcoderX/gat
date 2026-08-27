@@ -1,0 +1,9 @@
+fn do_work() -> void {
+    print("working...\n");
+    return 42;
+}
+
+fn main() -> i64 {
+    do_work();
+    return 0;
+}

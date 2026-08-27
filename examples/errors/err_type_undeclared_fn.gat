@@ -1,0 +1,4 @@
+fn main() -> i64 {
+    let result = non_existent_function_12345(10, 20);
+    return result;
+}

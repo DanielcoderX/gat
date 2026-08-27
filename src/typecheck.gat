@@ -2,7 +2,6 @@
 // src/typecheck.gat - Typechecker & Layout Engine
 // ============================================================================
 
-
 // ----------------------------------------------------------------------------
 // 6. Typechecker & Layout Engine
 // ----------------------------------------------------------------------------
@@ -13,6 +12,7 @@ class TypeChecker {
     type_id_seq: i64;
     funcs_head: Symbol;
     funcs_tail: Symbol;
+    had_error: i64;
 }
 
 fn tc_new() -> TypeChecker {
@@ -21,7 +21,8 @@ fn tc_new() -> TypeChecker {
         types_tail: nil,
         type_id_seq: 1,
         funcs_head: nil,
-        funcs_tail: nil
+        funcs_tail: nil,
+        had_error: 0
     };
 
     tc_add_primitive(tc, "void", TYPE_VOID, 0);
@@ -29,8 +30,14 @@ fn tc_new() -> TypeChecker {
     tc_add_primitive(tc, "i64", TYPE_INT, 8);
     tc_add_primitive(tc, "bool", TYPE_BOOL, 8);
     tc_add_primitive(tc, "string", TYPE_STRING, 8);
+    tc_add_primitive(tc, "array", TYPE_INT, 8);
 
     return tc;
+}
+
+fn tc_report_error(tc: TypeChecker, msg: string) {
+    tc.had_error = 1;
+    print("[Type Error] ", msg, "\n");
 }
 
 fn tc_add_primitive(tc: TypeChecker, name: string, kind: i64, size: i64) {
@@ -81,6 +88,21 @@ fn tc_find_func(tc: TypeChecker, name: string) -> Symbol {
     return nil;
 }
 
+fn tc_is_builtin(name: string) -> bool {
+    if str_eq(name, "print") || str_eq(name, "alloc_mem") || str_eq(name, "free_mem") ||
+       str_eq(name, "read_file") || str_eq(name, "write_file") || str_eq(name, "str_len") ||
+       str_eq(name, "str_char") || str_eq(name, "str_concat") || str_eq(name, "str_eq") ||
+       str_eq(name, "str_sub") || str_eq(name, "str_from_int") || str_eq(name, "get_cmd_arg") ||
+       str_eq(name, "delete_file") || str_eq(name, "sleep") || str_eq(name, "get_temp_dir") ||
+       str_eq(name, "exec_cmd") || str_eq(name, "exit_process") || str_eq(name, "get_pid") ||
+       str_eq(name, "file_size") || str_eq(name, "__gat_delete_file") || str_eq(name, "__gat_get_pid") ||
+       str_eq(name, "__gat_exit_process") || str_eq(name, "__gat_exec_cmd") ||
+       str_eq(name, "__gat_get_temp_dir") || str_eq(name, "__gat_sleep") {
+        return true;
+    }
+    return false;
+}
+
 fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
     if decl == nil { return; }
     if decl.kind == AST_FN_DECL {
@@ -88,13 +110,21 @@ fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
         if str_len(ret_type) == 0 {
             ret_type = "i64";
         }
+        // Count parameters
+        let p_count: i64 = 0;
+        let p = decl.left;
+        while p != nil {
+            p_count = p_count + 1;
+            p = p.next;
+        }
+
         let fn_sym = new Symbol {
             name: decl.str_val,
             type_kind: TYPE_INT,
             type_name: ret_type,
             is_ref: 0,
             size: 8,
-            offset: 0,
+            offset: p_count, // Store parameter count in offset field
             next: nil
         };
         if tc.funcs_head == nil {
@@ -234,3 +264,268 @@ fn tc_get_field_type(ti: TypeInfo, field_name: string) -> string {
     return "";
 }
 
+// ----------------------------------------------------------------------------
+// Type Checking Passes
+// ----------------------------------------------------------------------------
+
+fn tc_has_dot(s: string) -> bool {
+    let len = str_len(s);
+    let i = 0;
+    while i < len {
+        if str_char(s, i) == 46 { // '.'
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
+    if expr == nil { return "void"; }
+
+    if expr.kind == AST_INT_LIT { return "i64"; }
+    if expr.kind == AST_STR_LIT { return "string"; }
+    if expr.kind == AST_BOOL_LIT { return "bool"; }
+
+    if expr.kind == AST_IDENT {
+        if str_eq(expr.str_val, "nil") { return "nil"; }
+        if str_eq(expr.str_val, "true") || str_eq(expr.str_val, "false") { return "bool"; }
+        // Check locals
+        let cur = locals;
+        while cur != nil {
+            if str_eq(cur.name, expr.str_val) {
+                return cur.type_name;
+            }
+            cur = cur.next;
+        }
+        // Check global functions or types
+        if tc_find_func(tc, expr.str_val) != nil { return "fn"; }
+        if tc_find_type(tc, expr.str_val) != nil { return expr.str_val; }
+        if tc_is_builtin(expr.str_val) { return "fn"; }
+        return "i64";
+    }
+
+    if expr.kind == AST_CALL {
+        let fn_name = expr.str_val;
+        let fn_sym = tc_find_func(tc, fn_name);
+        if fn_sym == nil && !tc_is_builtin(fn_name) {
+            // If not found in types/funcs/builtins, check if enum constructor or method (contains '.')
+            if !tc_has_dot(fn_name) {
+                let msg = str_concat("call to undeclared function '", fn_name);
+                msg = str_concat(msg, "'");
+                tc_report_error(tc, msg);
+            }
+        } else if fn_sym != nil {
+            // Check arity
+            let arg_count: i64 = 0;
+            let a = expr.child;
+            while a != nil {
+                arg_count = arg_count + 1;
+                tc_check_expr(tc, a, locals);
+                a = a.next;
+            }
+            if arg_count != fn_sym.offset {
+                let msg = str_concat("function '", fn_name);
+                msg = str_concat(msg, "' expects ");
+                msg = str_concat(msg, str_from_int(fn_sym.offset));
+                msg = str_concat(msg, " arguments, got ");
+                msg = str_concat(msg, str_from_int(arg_count));
+                tc_report_error(tc, msg);
+            }
+            return fn_sym.type_name;
+        }
+        return "i64";
+    }
+
+    if expr.kind == AST_NEW {
+        let ti = tc_find_type(tc, expr.type_name);
+        if ti == nil {
+            let msg = str_concat("unknown type in instantiation: '", expr.type_name);
+            msg = str_concat(msg, "'");
+            tc_report_error(tc, msg);
+        }
+        return expr.type_name;
+    }
+
+    if expr.kind == AST_MEMBER {
+        let base_t = tc_check_expr(tc, expr.left, locals);
+        let ti = tc_find_type(tc, base_t);
+        if ti != nil {
+            let ft = tc_get_field_type(ti, expr.str_val);
+            if str_len(ft) == 0 {
+                let msg = str_concat("type '", base_t);
+                msg = str_concat(msg, "' has no field named '");
+                msg = str_concat(msg, expr.str_val);
+                msg = str_concat(msg, "'");
+                tc_report_error(tc, msg);
+            } else {
+                return ft;
+            }
+        }
+        return "i64";
+    }
+
+    if expr.kind == AST_INDEX {
+        tc_check_expr(tc, expr.left, locals);
+        tc_check_expr(tc, expr.right, locals);
+        return "i64";
+    }
+
+    if expr.kind == AST_BIN_OP {
+        tc_check_expr(tc, expr.left, locals);
+        tc_check_expr(tc, expr.right, locals);
+        let op = expr.str_val;
+        if str_eq(op, "==") || str_eq(op, "!=") || str_eq(op, "<") ||
+           str_eq(op, "<=") || str_eq(op, ">") || str_eq(op, ">=") ||
+           str_eq(op, "&&") || str_eq(op, "||") {
+            return "bool";
+        }
+        return "i64";
+    }
+
+    if expr.kind == AST_UN_OP {
+        tc_check_expr(tc, expr.right, locals);
+        if str_eq(expr.str_val, "!") {
+            return "bool";
+        }
+        return "i64";
+    }
+
+    return "i64";
+}
+
+fn tc_check_stmt(tc: TypeChecker, stmt: ASTNode, locals: Symbol, fn_name: string, ret_type: string) -> Symbol {
+    if stmt == nil { return locals; }
+
+    if stmt.kind == AST_LET_STMT {
+        let val_t = tc_check_expr(tc, stmt.left, locals);
+        let var_t = stmt.type_name;
+        if str_len(var_t) == 0 {
+            var_t = val_t;
+        }
+        let sym = new Symbol {
+            name: stmt.str_val,
+            type_name: var_t,
+            type_kind: TYPE_INT,
+            is_ref: 0,
+            size: 8,
+            offset: 0,
+            next: locals
+        };
+        return sym;
+    }
+
+    if stmt.kind == AST_ASSIGN_STMT {
+        tc_check_expr(tc, stmt.right, locals);
+        return locals;
+    }
+
+    if stmt.kind == AST_IF_STMT {
+        tc_check_expr(tc, stmt.left, locals);
+        tc_check_block(tc, stmt.right, locals, fn_name, ret_type);
+        if stmt.child != nil {
+            if stmt.child.kind == AST_BLOCK {
+                tc_check_block(tc, stmt.child, locals, fn_name, ret_type);
+            } else {
+                tc_check_stmt(tc, stmt.child, locals, fn_name, ret_type);
+            }
+        }
+        return locals;
+    }
+
+    if stmt.kind == AST_MATCH_STMT {
+        tc_check_expr(tc, stmt.left, locals);
+        let arm = stmt.child;
+        while arm != nil {
+            let arm_locals = locals;
+            let b_var = arm.left;
+            while b_var != nil {
+                let sym = new Symbol {
+                    name: b_var.str_val,
+                    type_name: "i64",
+                    type_kind: TYPE_INT,
+                    is_ref: 0,
+                    size: 8,
+                    offset: 0,
+                    next: arm_locals
+                };
+                arm_locals = sym;
+                b_var = b_var.next;
+            }
+            tc_check_block(tc, arm.right, arm_locals, fn_name, ret_type);
+            arm = arm.next;
+        }
+        return locals;
+    }
+
+    if stmt.kind == AST_WHILE_STMT {
+        tc_check_expr(tc, stmt.left, locals);
+        tc_check_block(tc, stmt.right, locals, fn_name, ret_type);
+        return locals;
+    }
+
+    if stmt.kind == AST_EXPR_STMT {
+        tc_check_expr(tc, stmt.left, locals);
+        return locals;
+    }
+
+    if stmt.kind == AST_RETURN_STMT {
+        if str_eq(ret_type, "void") && stmt.left != nil {
+            let msg = str_concat("void function '", fn_name);
+            msg = str_concat(msg, "' cannot return a value");
+            tc_report_error(tc, msg);
+        } else if stmt.left != nil {
+            tc_check_expr(tc, stmt.left, locals);
+        }
+        return locals;
+    }
+
+    return locals;
+}
+
+fn tc_check_block(tc: TypeChecker, block: ASTNode, locals: Symbol, fn_name: string, ret_type: string) {
+    if block == nil { return; }
+    let cur_s = block.child;
+    let cur_locals = locals;
+    while cur_s != nil {
+        cur_locals = tc_check_stmt(tc, cur_s, cur_locals, fn_name, ret_type);
+        cur_s = cur_s.next;
+    }
+}
+
+fn tc_check_function(tc: TypeChecker, fn_decl: ASTNode) {
+    let fn_name = fn_decl.str_val;
+    let ret_type = fn_decl.type_name;
+    if str_len(ret_type) == 0 {
+        ret_type = "i64";
+    }
+
+    let locals: Symbol = nil;
+    let p = fn_decl.left;
+    while p != nil {
+        let p_sym = new Symbol {
+            name: p.str_val,
+            type_name: p.type_name,
+            type_kind: TYPE_INT,
+            is_ref: 0,
+            size: 8,
+            offset: 0,
+            next: locals
+        };
+        locals = p_sym;
+        p = p.next;
+    }
+
+    tc_check_block(tc, fn_decl.right, locals, fn_name, ret_type);
+}
+
+fn tc_check_program(tc: TypeChecker, prog: ASTNode) {
+    if prog == nil { return; }
+    let d = prog.child;
+    while d != nil {
+        if d.kind == AST_FN_DECL {
+            tc_check_function(tc, d);
+        }
+        d = d.next;
+    }
+}

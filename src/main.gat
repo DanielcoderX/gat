@@ -29,18 +29,32 @@ fn main() -> i64 {
     let l = lexer_new(src);
     let p = parser_new(l);
     let raw_prog = parse_program(p);
+    if p.had_error == 1 || raw_prog == nil {
+        print("[Error] Parsing failed due to syntax errors.\n");
+        return 1;
+    }
 
     let loaded_files = new FileList {
         path: src_path,
         next: nil
     };
     let prog = resolve_imports(raw_prog, loaded_files);
+    if prog == nil {
+        print("[Error] Import resolution failed.\n");
+        return 1;
+    }
 
     let tc = tc_new();
     let d = prog.child;
     while d != nil {
         tc_register_decl(tc, d);
         d = d.next;
+    }
+
+    tc_check_program(tc, prog);
+    if tc.had_error == 1 {
+        print("[Error] Type checking failed due to semantic errors.\n");
+        return 1;
     }
 
     let ir_ctx = ir_new(tc);

@@ -60,6 +60,62 @@ let TOK_FOR: i64 = 59;
 let TOK_IN: i64 = 60;
 let TOK_DOTDOT: i64 = 61;
 
+fn token_kind_name(kind: i64) -> string {
+    if kind == TOK_EOF { return "end of file"; }
+    if kind == TOK_IDENT { return "identifier"; }
+    if kind == TOK_INT { return "integer"; }
+    if kind == TOK_STRING { return "string"; }
+    if kind == TOK_BOOL { return "boolean"; }
+    if kind == TOK_FN { return "fn"; }
+    if kind == TOK_LET { return "let"; }
+    if kind == TOK_STRUCT { return "struct"; }
+    if kind == TOK_CLASS { return "class"; }
+    if kind == TOK_DEINIT { return "deinit"; }
+    if kind == TOK_RETURN { return "return"; }
+    if kind == TOK_IF { return "if"; }
+    if kind == TOK_ELSE { return "else"; }
+    if kind == TOK_WHILE { return "while"; }
+    if kind == TOK_NEW { return "new"; }
+    if kind == TOK_RAW { return "raw"; }
+    if kind == TOK_PRINT { return "print"; }
+    if kind == TOK_TRUE { return "true"; }
+    if kind == TOK_FALSE { return "false"; }
+    if kind == TOK_IMPORT { return "import"; }
+    if kind == TOK_ENUM { return "enum"; }
+    if kind == TOK_MATCH { return "match"; }
+    if kind == TOK_FOR { return "for"; }
+    if kind == TOK_IN { return "in"; }
+    if kind == TOK_DOTDOT { return ".."; }
+    if kind == TOK_PLUS { return "+"; }
+    if kind == TOK_MINUS { return "-"; }
+    if kind == TOK_STAR { return "*"; }
+    if kind == TOK_SLASH { return "/"; }
+    if kind == TOK_PERCENT { return "%"; }
+    if kind == TOK_EQ { return "=="; }
+    if kind == TOK_NOT_EQ { return "!="; }
+    if kind == TOK_LT { return "<"; }
+    if kind == TOK_LTE { return "<="; }
+    if kind == TOK_GT { return ">"; }
+    if kind == TOK_GTE { return ">="; }
+    if kind == TOK_AND { return "&&"; }
+    if kind == TOK_OR { return "||"; }
+    if kind == TOK_BANG { return "!"; }
+    if kind == TOK_ASSIGN { return "="; }
+    if kind == TOK_DOT { return "."; }
+    if kind == TOK_COMMA { return ","; }
+    if kind == TOK_COLON { return ":"; }
+    if kind == TOK_SEMICOLON { return ";"; }
+    if kind == TOK_LPAREN { return "("; }
+    if kind == TOK_RPAREN { return ")"; }
+    if kind == TOK_LBRACE { return "{"; }
+    if kind == TOK_RBRACE { return "}"; }
+    if kind == TOK_LBRACKET { return "["; }
+    if kind == TOK_RBRACKET { return "]"; }
+    if kind == TOK_ARROW { return "->"; }
+    if kind == TOK_FAT_ARROW { return "=>"; }
+    return "unknown token";
+}
+
 // AST Node Kinds
 let AST_PROGRAM: i64 = 1;
 let AST_FN_DECL: i64 = 2;

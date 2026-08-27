@@ -11,7 +11,9 @@ fn parser_new(lex: Lexer) -> Parser {
     let p = new Parser {
         lex: lex,
         cur_tok: nil,
-        peek_tok: nil
+        peek_tok: nil,
+        had_error: 0,
+        context: ""
     };
     parser_next_token(p);
     parser_next_token(p);
@@ -33,12 +35,23 @@ fn parser_peek_is(p: Parser, kind: i64) -> bool {
     return p.peek_tok.kind == kind;
 }
 
+fn parser_report_error(p: Parser, line: i64, col: i64, expected: string, got: Token) {
+    p.had_error = 1;
+    let got_name = token_kind_name(got.kind);
+    let got_lit = got.lit;
+    print("[Parser Error] line ", line, ":", col, ": expected '", expected, "', got '", got_lit, "' (", got_name, ")");
+    if str_len(p.context) > 0 {
+        print(" while parsing ", p.context);
+    }
+    print("\n");
+}
+
 fn parser_expect_peek(p: Parser, kind: i64) -> bool {
     if parser_peek_is(p, kind) {
         parser_next_token(p);
         return true;
     }
-    print("[Error] line ", p.peek_tok.line, ": expected token kind ", kind, ", got ", p.peek_tok.kind, "\n");
+    parser_report_error(p, p.peek_tok.line, p.peek_tok.col, token_kind_name(kind), p.peek_tok);
     return false;
 }
 
