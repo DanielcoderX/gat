@@ -1,0 +1,177 @@
+// ============================================================================
+// examples/test_linux_suite.gat - Comprehensive Linux ELF64 Verification Suite
+// ============================================================================
+
+import "std/option.gat";
+import "std/weak.gat";
+import "std/str.gat";
+import "std/sync.gat";
+import "std/thread.gat";
+import "std/process.gat";
+
+struct Point {
+    x: i64,
+    y: i64
+}
+
+class Node {
+    val: i64;
+    next: Node;
+    prev: weak Node;
+}
+
+fn worker_fn(arg: raw i64) {
+    arg[0] = 777;
+}
+
+fn test_basics() -> bool {
+    print("[1/6] Testing basic printing & primitives...\n");
+    let a: i64 = 42;
+    let b: i64 = -100;
+    let flag: bool = true;
+    print("  a = ", a, ", b = ", b, ", flag = ", flag, "\n");
+    return a == 42 && b == -100 && flag;
+}
+
+fn test_strings() -> bool {
+    print("[2/6] Testing string operations...\n");
+    let s1 = "hello";
+    let s2 = " world";
+    let s3 = str_concat(s1, s2);
+    let l = str_len(s3);
+    let sub = str_sub(s3, 6, 5);
+    let num_str = str_from_int(12345);
+
+    print("  s3: ", s3, " (len: ", l, "), sub: ", sub, ", num_str: ", num_str, "\n");
+    return str_eq(s3, "hello world") && l == 11 && str_eq(sub, "world") && str_eq(num_str, "12345");
+}
+
+fn test_memory_and_arc() -> bool {
+    print("[3/6] Testing memory alloc, struct & ARC cycle/weak ref...\n");
+    let pt = new Point { x: 10, y: 20 };
+    if pt.x != 10 || pt.y != 20 {
+        return false;
+    }
+
+    let parent = new Node {
+        val: 1,
+        next: nil,
+        prev: nil
+    };
+
+    let child = new Node {
+        val: 2,
+        next: nil,
+        prev: weak_from(parent)
+    };
+
+    parent.next = child;
+
+    let sc = strong_count(parent);
+    let wc = weak_count(parent);
+
+    let upgraded_opt = weak_upgrade(child.prev);
+    let ok_upgraded = false;
+    if option_is_some(upgraded_opt) {
+        let p_node = option_unwrap(upgraded_opt);
+        if p_node.val == 1 {
+            ok_upgraded = true;
+        }
+        strong_release(p_node);
+    }
+
+    weak_release(child.prev);
+
+    print("  ARC verified: strong_count = ", sc, ", weak_count = ", wc, ", upgraded = ", ok_upgraded, "\n");
+    return parent.val == 1 && child.val == 2 && sc == 1 && wc == 1 && ok_upgraded;
+}
+
+fn test_file_io() -> bool {
+    print("[4/6] Testing direct Linux syscall file I/O...\n");
+    let test_path = "/tmp/gat_linux_test.txt";
+    let payload = "Gat Linux Syscall IO OK!\n";
+    
+    let written = write_file(test_path, payload, str_len(payload));
+    if written <= 0 {
+        print("  [FAIL] Failed to write file: ", test_path, "\n");
+        return false;
+    }
+
+    let sz = file_size(test_path);
+    let content = read_file(test_path);
+    let deleted = delete_file(test_path);
+
+    print("  File size: ", sz, ", content: ", content);
+    return sz == 25 && str_eq(content, payload) && deleted;
+}
+
+fn test_process_and_sleep() -> bool {
+    print("[5/6] Testing process management & nanosleep...\n");
+    let pid = proc_get_pid();
+    print("  Current Linux PID: ", pid, "\n");
+    if pid <= 0 { return false; }
+
+    proc_sleep(10); // 10ms via sys_nanosleep
+
+    let tmp_dir = get_temp_dir();
+    print("  Temp dir: ", tmp_dir, "\n");
+
+    let cmd_code = proc_exec("echo 'gat exec_cmd linux test' > /tmp/gat_cmd_test.txt");
+    let cmd_content = read_file("/tmp/gat_cmd_test.txt");
+    delete_file("/tmp/gat_cmd_test.txt");
+
+    print("  exec_cmd exit code: ", cmd_code, ", output read: ", cmd_content);
+    return cmd_code == 0 && str_starts_with(cmd_content, "gat exec_cmd linux test");
+}
+
+fn test_threading_and_mutex() -> bool {
+    print("[6/6] Testing threads (clone) & atomic CAS mutex...\n");
+    let m = mutex_new();
+    mutex_lock(m);
+    mutex_unlock(m);
+
+    let flag_buf: raw i64 = alloc_mem(8);
+    flag_buf[0] = 0;
+
+    let th = thread_spawn(worker_fn, flag_buf);
+    if th == 0 {
+        print("  [FAIL] thread_spawn failed\n");
+        return false;
+    }
+
+    thread_join(th);
+    let flag_val = flag_buf[0];
+    free_mem(flag_buf);
+
+    print("  Thread joined, worker flag value: ", flag_val, "\n");
+    return flag_val == 777;
+}
+
+fn main() -> i64 {
+    print("================================================================\n");
+    print("Running Gat Linux/ELF64 Native Syscall Test Suite\n");
+    print("================================================================\n");
+
+    let ok1 = test_basics();
+    if !ok1 { print("[FAIL] Basics test failed\n"); return 1; }
+
+    let ok2 = test_strings();
+    if !ok2 { print("[FAIL] Strings test failed\n"); return 2; }
+
+    let ok3 = test_memory_and_arc();
+    if !ok3 { print("[FAIL] Memory & ARC test failed\n"); return 3; }
+
+    let ok4 = test_file_io();
+    if !ok4 { print("[FAIL] File I/O test failed\n"); return 4; }
+
+    let ok5 = test_process_and_sleep();
+    if !ok5 { print("[FAIL] Process test failed\n"); return 5; }
+
+    let ok6 = test_threading_and_mutex();
+    if !ok6 { print("[FAIL] Threads & Mutex test failed\n"); return 6; }
+
+    print("================================================================\n");
+    print("ALL LINUX ELF64 TESTS PASSED SUCCESSFULLY (6/6)\n");
+    print("================================================================\n");
+    return 0;
+}

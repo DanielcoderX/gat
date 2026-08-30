@@ -46,15 +46,20 @@ Execute any `.gat` file directly with the CLI tool:
 ```
 
 ### 3. Compile to Standalone Native Executable
-Compile source code directly into a native `.exe` binary:
+Compile source code directly into a native `.exe` binary (Windows PE) or static ELF64 binary (Linux):
 
 ```powershell
+# Windows (default)
 .\bin\gat.exe build examples\hello.gat -o hello.exe
 .\hello.exe
+
+# Linux ELF64 (Direct Syscalls, zero libc/linker dependencies)
+.\bin\gat.exe build examples\hello.gat -o hello_linux --target=linux
+wsl chmod +x ./hello_linux ; wsl ./hello_linux
 ```
 
 ### 4. Fast Semantic & Type Check
-Perform fast type checking and diagnostic inspection without emitting PE binaries:
+Perform fast type checking and diagnostic inspection without emitting binaries:
 
 ```powershell
 .\bin\gat.exe check examples\hello.gat
@@ -69,7 +74,7 @@ To recompile the `gat` compiler from source using the compiler itself:
 ```
 
 ### 6. Run the Full Test Suite & Bootstrap Verification
-Verify all 23 language test suites, diagnostic negative tests, LSP verification, and 3-stage bitwise identity:
+Verify all 23 language test suites, diagnostic negative tests, LSP verification, WSL Linux direct syscall test suite, and 3-stage bitwise identity:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\test.ps1
@@ -79,7 +84,9 @@ powershell -ExecutionPolicy Bypass -File .\test.ps1
 
 ## Project Status & Design Boundaries
 
-- **Platform**: Windows x86-64 native target. Support for Linux (ELF) and macOS (Mach-O) is planned for future backend development.
+- **Cross-Platform Target Architecture**:
+  - **Windows x86-64 (PE32+)**: Direct PE executable emission using `KERNEL32.dll` dynamic imports.
+  - **Linux x86-64 (ELF64)**: Direct static ELF executable emission using raw x86-64 direct kernel syscalls (`sys_write`, `sys_mmap`, `sys_open`, `sys_read`, `sys_close`, `sys_nanosleep`, `sys_fork`, `sys_execve`, `sys_wait4`, `sys_clone`, `sys_exit`). Zero external libc or linker dependency.
 - **Memory Safety & ARC**: Single-threaded heaps utilize zero-overhead non-atomic ARC. Reference-counted types (`class`, `string`, `weak T`) are forbidden at compile time from crossing thread boundaries.
 - **Concurrency**: Native OS threads communicate through value types, raw memory buffers (`raw T`), and `Mutex` critical sections.
 - **Generics**: Uniform 64-bit word-sized type erasure model for generic classes (`class Vector<T>`) and functions.

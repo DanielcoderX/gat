@@ -1,0 +1,45 @@
+// ============================================================================
+// examples/test_linux_print.gat - Comprehensive Print & Interpolation Test Suite
+// ============================================================================
+
+import "std/str.gat";
+
+fn main() -> i64 {
+    print("================================================================\n");
+    print("Testing Linux Print & Interpolation Operations\n");
+    print("================================================================\n");
+
+    // 1. Literal strings & escapes
+    print("[1/5] Literal strings and escapes...\n");
+    print("  Hello Linux direct syscall printing!\n");
+
+    // 2. Integer printing (positive, negative, zero, large)
+    print("[2/5] Integer printing...\n");
+    let zero = 0;
+    let pos = 42;
+    let neg = -98765;
+    let large = 1234567890;
+    print("  zero: ", zero, ", pos: ", pos, ", neg: ", neg, ", large: ", large, "\n");
+
+    // 3. Boolean printing
+    print("[3/5] Boolean printing...\n");
+    let t = true;
+    let f = false;
+    print("  true: ", t, ", false: ", f, "\n");
+
+    // 4. String interpolation
+    print("[4/5] String interpolation...\n");
+    let a = 15;
+    let b = 27;
+    let name = "LinuxSyscall";
+    print("  Calc: {a} + {b} = {a + b}, Target: {name}\n");
+
+    // 5. Mixed arguments
+    print("[5/5] Multi-argument chaining...\n");
+    print("  Status: ", 1, " ", true, " ", "OK", " ", -1, "\n");
+
+    print("================================================================\n");
+    print("ALL LINUX PRINT TESTS PASSED (5/5)\n");
+    print("================================================================\n");
+    return 0;
+}

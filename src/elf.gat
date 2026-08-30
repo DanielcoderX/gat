@@ -1,0 +1,173 @@
+// ============================================================================
+// src/elf.gat - Minimal Static ELF64 Executable Generator for Linux x86-64
+// ============================================================================
+
+// Build static ELF64 executable
+fn elf_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool {
+    let out_buf = bb_new(16384);
+    let rdata = bb_new(4096);
+
+    // Build .rdata payload (string constants)
+    let rdata_str_true_off = rdata.size;
+    bb_write_str(rdata, "true"); bb_write_u8(rdata, 0);
+
+    let rdata_str_false_off = rdata.size;
+    bb_write_str(rdata, "false"); bb_write_u8(rdata, 0);
+
+    let rdata_str_empty_off = rdata.size;
+    bb_write_str(rdata, ""); bb_write_u8(rdata, 0);
+
+    let sc = ir_ctx.strings_head;
+    while sc != nil {
+        sc.rdata_offset = rdata.size;
+        bb_write_str(rdata, sc.val);
+        bb_write_u8(rdata, 0);
+        sc = sc.next;
+    }
+    bb_align_up(rdata, 8);
+
+    // Layout constants
+    let page_size: i64 = 4096;
+    let text_vaddr: i64 = 4194304; // 0x400000
+    let code_vaddr: i64 = text_vaddr + page_size; // 0x401000
+    let data_vaddr: i64 = 6291456; // 0x600000
+
+    let code_size = cg.code.size;
+    let text_raw_size = align_val(code_size, page_size);
+    let rdata_size = rdata.size;
+    let rdata_raw_size = align_val(rdata_size, page_size);
+
+    let code_file_off: i64 = page_size; // 0x1000
+    let rdata_file_off: i64 = code_file_off + text_raw_size;
+
+    // Resolve Relocations
+    let rel = cg.relocs_head;
+    while rel != nil {
+        let p_code: raw i8 = cg.code.data;
+        let target_vaddr: i64 = 0;
+
+        if str_eq(rel.sym, "str_true_const") {
+            target_vaddr = data_vaddr + rdata_str_true_off;
+        } else if str_eq(rel.sym, "str_false_const") {
+            target_vaddr = data_vaddr + rdata_str_false_off;
+        } else if str_eq(rel.sym, "str_empty_const") {
+            target_vaddr = data_vaddr + rdata_str_empty_off;
+        } else {
+            let sym_cur = cg.syms_head;
+            let found: i64 = 0;
+            while sym_cur != nil {
+                if str_eq(sym_cur.name, rel.sym) {
+                    target_vaddr = code_vaddr + sym_cur.offset;
+                    found = 1;
+                }
+                sym_cur = sym_cur.next;
+            }
+            if found == 0 {
+                let sc_cur = ir_ctx.strings_head;
+                while sc_cur != nil {
+                    if str_eq(sc_cur.label, rel.sym) {
+                        target_vaddr = data_vaddr + sc_cur.rdata_offset;
+                    }
+                    sc_cur = sc_cur.next;
+                }
+            }
+        }
+
+        let from_vaddr = code_vaddr + rel.offset + 4;
+        let diff = target_vaddr - from_vaddr;
+        let u_diff = diff;
+        if u_diff < 0 {
+            u_diff = u_diff + 65536 * 65536;
+        }
+        p_code[rel.offset + 0] = u_diff;
+        p_code[rel.offset + 1] = u_diff / 256;
+        p_code[rel.offset + 2] = u_diff / 65536;
+        p_code[rel.offset + 3] = (u_diff / 65536) / 256;
+
+        rel = rel.next;
+    }
+
+    // Find entrypoint offset (__gat_entry)
+    let entry_offset: i64 = 0;
+    let sym_cur = cg.syms_head;
+    while sym_cur != nil {
+        if str_eq(sym_cur.name, "__gat_entry") {
+            entry_offset = sym_cur.offset;
+        }
+        sym_cur = sym_cur.next;
+    }
+    let entry_vaddr = code_vaddr + entry_offset;
+
+    // --- ELF64 Header (64 bytes) ---
+    // e_ident (16 bytes)
+    bb_write_u8(out_buf, 0x7F);
+    bb_write_u8(out_buf, 0x45); // 'E'
+    bb_write_u8(out_buf, 0x4C); // 'L'
+    bb_write_u8(out_buf, 0x46); // 'F'
+    bb_write_u8(out_buf, 2);    // ELFCLASS64
+    bb_write_u8(out_buf, 1);    // ELFDATA2LSB (little endian)
+    bb_write_u8(out_buf, 1);    // EV_CURRENT
+    bb_write_u8(out_buf, 0);    // ELFOSABI_NONE / System V
+    bb_write_zeros(out_buf, 8); // e_ident padding
+
+    bb_write_u16(out_buf, 2);      // e_type = ET_EXEC
+    bb_write_u16(out_buf, 0x3E);   // e_machine = EM_X86_64 (62)
+    bb_write_u32(out_buf, 1);      // e_version = EV_CURRENT
+    bb_write_u64(out_buf, entry_vaddr); // e_entry
+    bb_write_u64(out_buf, 64);     // e_phoff (immediately follows Ehdr)
+    bb_write_u64(out_buf, 0);      // e_shoff (no section headers)
+    bb_write_u32(out_buf, 0);      // e_flags
+    bb_write_u16(out_buf, 64);     // e_ehsize
+    bb_write_u16(out_buf, 56);     // e_phentsize (Elf64_Phdr size)
+    bb_write_u16(out_buf, 2);      // e_phnum (2 load segments: RX code, RW data)
+    bb_write_u16(out_buf, 0);      // e_shentsize
+    bb_write_u16(out_buf, 0);      // e_shnum
+    bb_write_u16(out_buf, 0);      // e_shstrndx
+
+    // --- Program Header 1: RX Segment (Headers + Code) ---
+    bb_write_u32(out_buf, 1);      // p_type = PT_LOAD
+    bb_write_u32(out_buf, 5);      // p_flags = PF_R | PF_X (1 | 4 = 5)
+    bb_write_u64(out_buf, 0);      // p_offset
+    bb_write_u64(out_buf, text_vaddr); // p_vaddr
+    bb_write_u64(out_buf, text_vaddr); // p_paddr
+    bb_write_u64(out_buf, code_file_off + code_size); // p_filesz
+    bb_write_u64(out_buf, code_file_off + text_raw_size); // p_memsz
+    bb_write_u64(out_buf, page_size); // p_align = 4096
+
+    // --- Program Header 2: RW Segment (Data & Strings) ---
+    bb_write_u32(out_buf, 1);      // p_type = PT_LOAD
+    bb_write_u32(out_buf, 6);      // p_flags = PF_R | PF_W (2 | 4 = 6)
+    bb_write_u64(out_buf, rdata_file_off); // p_offset
+    bb_write_u64(out_buf, data_vaddr);     // p_vaddr
+    bb_write_u64(out_buf, data_vaddr);     // p_paddr
+    bb_write_u64(out_buf, rdata_size);     // p_filesz
+    bb_write_u64(out_buf, rdata_raw_size); // p_memsz
+    bb_write_u64(out_buf, page_size);      // p_align = 4096
+
+    // Pad file until code_file_off (0x1000)
+    while out_buf.size < code_file_off {
+        bb_write_u8(out_buf, 0);
+    }
+
+    // Write machine code
+    bb_write_bytes(out_buf, cg.code.data, cg.code.size);
+
+    // Pad file until rdata_file_off
+    while out_buf.size < rdata_file_off {
+        bb_write_u8(out_buf, 0);
+    }
+
+    // Write rdata / strings
+    bb_write_bytes(out_buf, rdata.data, rdata.size);
+
+    // Pad to multiple of 4KB
+    while out_buf.size < rdata_file_off + rdata_raw_size {
+        bb_write_u8(out_buf, 0);
+    }
+
+    let written = write_file(out_path, out_buf.data, out_buf.size);
+    if written > 0 {
+        return true;
+    }
+    return false;
+}

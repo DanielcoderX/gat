@@ -1,0 +1,71 @@
+// ============================================================================
+// src/target.gat - Target Backend & ABI Abstraction
+// ============================================================================
+
+let TARGET_WINDOWS: i64 = 1;
+let TARGET_LINUX: i64 = 2;
+
+fn str_starts_with_prefix(s: string, prefix: string) -> bool {
+    if s == nil || prefix == nil { return false; }
+    let slen = str_len(s);
+    let plen = str_len(prefix);
+    if plen > slen { return false; }
+    let i = 0;
+    while i < plen {
+        if str_char(s, i) != str_char(prefix, i) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+class TargetBackend {
+    target_id: i64;
+    name: string;
+    shadow_space: i64;
+    max_reg_args: i64;
+    arg_reg1: i64;
+    arg_reg2: i64;
+    arg_reg3: i64;
+    arg_reg4: i64;
+    arg_reg5: i64;
+    arg_reg6: i64;
+}
+
+fn target_get_windows() -> TargetBackend {
+    return new TargetBackend {
+        target_id: 1,
+        name: "windows",
+        shadow_space: 32,
+        max_reg_args: 4,
+        arg_reg1: 1, // RCX
+        arg_reg2: 2, // RDX
+        arg_reg3: 4, // R8
+        arg_reg4: 5, // R9
+        arg_reg5: 0, // stack
+        arg_reg6: 0  // stack
+    };
+}
+
+fn target_get_linux() -> TargetBackend {
+    return new TargetBackend {
+        target_id: 2,
+        name: "linux",
+        shadow_space: 0,
+        max_reg_args: 6,
+        arg_reg1: 6, // RDI
+        arg_reg2: 7, // RSI
+        arg_reg3: 2, // RDX
+        arg_reg4: 1, // RCX
+        arg_reg5: 4, // R8
+        arg_reg6: 5  // R9
+    };
+}
+
+fn target_from_name(name: string) -> TargetBackend {
+    if str_eq(name, "linux") || str_eq(name, "elf") || str_eq(name, "x86_64-linux") {
+        return target_get_linux();
+    }
+    return target_get_windows();
+}

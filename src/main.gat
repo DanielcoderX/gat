@@ -14,10 +14,33 @@ fn main() -> i64 {
     }
 
     let out_path = "output.exe";
-    let arg2 = get_cmd_arg(2);
-    let arg3 = get_cmd_arg(3);
-    if str_eq(arg2, "-o") && str_len(arg3) > 0 {
-        out_path = arg3;
+    let target_backend = target_get_windows();
+    let is_check_only: i64 = 0;
+
+    let arg_idx: i64 = 2;
+    while arg_idx <= 6 {
+        let arg = get_cmd_arg(arg_idx);
+        if str_len(arg) > 0 {
+            if str_eq(arg, "-o") {
+                arg_idx = arg_idx + 1;
+                let next_arg = get_cmd_arg(arg_idx);
+                if str_len(next_arg) > 0 {
+                    out_path = next_arg;
+                }
+            } else if str_eq(arg, "--check") || str_eq(arg, "-c") {
+                is_check_only = 1;
+            } else if str_eq(arg, "--target") {
+                arg_idx = arg_idx + 1;
+                let next_target = get_cmd_arg(arg_idx);
+                if str_len(next_target) > 0 {
+                    target_backend = target_from_name(next_target);
+                }
+            } else if str_starts_with_prefix(arg, "--target=") {
+                let t_name = str_sub(arg, 9, str_len(arg) - 9);
+                target_backend = target_from_name(t_name);
+            }
+        }
+        arg_idx = arg_idx + 1;
     }
 
     let src = read_file(src_path);
@@ -57,7 +80,7 @@ fn main() -> i64 {
         return 1;
     }
 
-    if str_eq(arg2, "--check") || str_eq(arg2, "-c") || str_eq(src_path, "--check") {
+    if is_check_only == 1 {
         return 0;
     }
 
@@ -65,7 +88,7 @@ fn main() -> i64 {
     ir_build_program(ir_ctx, prog);
     opt_optimize_program(ir_ctx);
 
-    let cg = cg_new();
+    let cg = cg_new_target(target_backend);
     cg_emit_runtime(cg);
     let fn_cur = ir_ctx.funcs_head;
     while fn_cur != nil {
@@ -73,11 +96,17 @@ fn main() -> i64 {
         fn_cur = fn_cur.next;
     }
 
-    let success = pe_build_executable(ir_ctx, cg, out_path);
+    let success = false;
+    if cg_is_linux(cg) {
+        success = elf_build_executable(ir_ctx, cg, out_path);
+    } else {
+        success = pe_build_executable(ir_ctx, cg, out_path);
+    }
+
     if success {
         return 0;
     } else {
-        print("[Error] Failed to write PE binary: ", out_path, "\n");
+        print("[Error] Failed to write executable binary: ", out_path, "\n");
         return 1;
     }
 }

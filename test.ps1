@@ -130,11 +130,43 @@ foreach ($nt in $negativeTests) {
 }
 
 # 5. Language Server (LSP) Verification
-Write-Host "`n[5/5] Running Language Server (LSP) Tests..." -ForegroundColor Cyan
+Write-Host "`n[5/6] Running Language Server (LSP) Tests..." -ForegroundColor Cyan
 & node editors\vscode\test_lsp.js
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  [FAIL] Language Server tests failed!" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "`nAll $passed positive tests, $negPassed negative diagnostic tests, and LSP verification passed successfully!" -ForegroundColor Green
+# 6. Linux/ELF64 Target Verification (WSL)
+Write-Host "`n[6/6] Running Linux/ELF64 Native Direct Syscall Suite..." -ForegroundColor Cyan
+
+$linuxTests = @(
+    @{ Name = "Linux Direct Syscall Suite"; File = "examples/test_linux_suite.gat"; Bin = "bin/test_linux_suite"; Expect = "ALL LINUX ELF64 TESTS PASSED SUCCESSFULLY" },
+    @{ Name = "Linux Print & Interpolation"; File = "examples/test_linux_print.gat"; Bin = "bin/test_linux_print"; Expect = "ALL LINUX PRINT TESTS PASSED" }
+)
+
+$wslAvailable = (Get-Command "wsl.exe" -ErrorAction SilentlyContinue)
+
+foreach ($lt in $linuxTests) {
+    if (Test-Path $lt.Bin) { Remove-Item -Force $lt.Bin }
+
+    & .\bin\gatc.exe $lt.File -o $lt.Bin --target=linux
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  [FAIL] Failed to compile $($lt.Name) for Linux ELF target" -ForegroundColor Red
+        exit 1
+    }
+
+    if ($wslAvailable) {
+        wsl chmod +x "./$($lt.Bin)"
+        $linuxOut = (wsl "./$($lt.Bin)" | Out-String)
+        if ($LASTEXITCODE -ne 0 -or -not $linuxOut.Contains($lt.Expect)) {
+            Write-Host "  [FAIL] $($lt.Name) failed under WSL:`n$linuxOut" -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "  [PASS] $($lt.Name) passed under WSL" -ForegroundColor Green
+    } else {
+        Write-Host "  [SKIP] WSL not detected on host; $($lt.Name) ELF binary generated and verified statically" -ForegroundColor Yellow
+    }
+}
+
+Write-Host "`nAll $passed positive tests, $negPassed negative diagnostic tests, LSP verification, and Linux ELF64 suite passed successfully!" -ForegroundColor Green

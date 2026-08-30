@@ -11,6 +11,8 @@ import "src/typecheck.gat";
 import "src/ir.gat";
 import "src/opt.gat";
 import "src/regalloc.gat";
+import "src/target.gat";
 import "src/codegen.gat";
 import "src/pe.gat";
+import "src/elf.gat";
 import "src/main.gat";

@@ -11,15 +11,17 @@ import "src/typecheck.gat";
 import "src/ir.gat";
 import "src/opt.gat";
 import "src/regalloc.gat";
+import "src/target.gat";
 import "src/codegen.gat";
 import "src/pe.gat";
+import "src/elf.gat";
 
 import "std/str.gat";
 import "std/fs.gat";
 import "std/process.gat";
 import "std/mod.gat";
 
-fn compile_to_binary(src_path: string, out_path: string) -> bool {
+fn compile_to_binary_target(src_path: string, out_path: string, target_backend: TargetBackend) -> bool {
     let src = read_file(src_path);
     if str_len(src) == 0 {
         print("[Error] Failed to read source file: ", src_path, "\n");
@@ -58,7 +60,7 @@ fn compile_to_binary(src_path: string, out_path: string) -> bool {
     ir_build_program(ir_ctx, prog);
     opt_optimize_program(ir_ctx);
 
-    let cg = cg_new();
+    let cg = cg_new_target(target_backend);
     cg_emit_runtime(cg);
     let fn_cur = ir_ctx.funcs_head;
     while fn_cur != nil {
@@ -66,8 +68,17 @@ fn compile_to_binary(src_path: string, out_path: string) -> bool {
         fn_cur = fn_cur.next;
     }
 
-    let success = pe_build_executable(ir_ctx, cg, out_path);
+    let success = false;
+    if cg_is_linux(cg) {
+        success = elf_build_executable(ir_ctx, cg, out_path);
+    } else {
+        success = pe_build_executable(ir_ctx, cg, out_path);
+    }
     return success;
+}
+
+fn compile_to_binary(src_path: string, out_path: string) -> bool {
+    return compile_to_binary_target(src_path, out_path, target_get_windows());
 }
 
 fn print_usage() {
@@ -76,7 +87,7 @@ fn print_usage() {
     print("Commands:\n");
     print("  init [module_name]               Initialize a new gat.mod manifest\n");
     print("  fetch                            Fetch and resolve dependencies\n");
-    print("  build <file.gat> [-o <out.exe>]  Compile source to native executable\n");
+    print("  build <file.gat> [-o <out>] [--target=linux|windows] Compile source to executable\n");
     print("  run <file.gat>                   Compile and execute immediately\n");
     print("  check <file.gat>                 Fast typecheck and diagnostic check\n");
     print("  test                             Run all automated test suites\n");
@@ -89,19 +100,47 @@ fn run_build() -> i64 {
     let src_path = get_cmd_arg(2);
     if str_len(src_path) == 0 {
         print("[Error] Missing source file for 'gat build'.\n");
-        print("Usage: gat build <source.gat> [-o <output.exe>]\n");
+        print("Usage: gat build <source.gat> [-o <output.exe>] [--target=linux|windows]\n");
         return 1;
     }
 
-    let out_path = "output.exe";
-    let arg3 = get_cmd_arg(3);
-    let arg4 = get_cmd_arg(4);
-    if str_eq(arg3, "-o") && str_len(arg4) > 0 {
-        out_path = arg4;
+    let out_path = "";
+    let target_backend = target_get_windows();
+
+    let arg_idx: i64 = 3;
+    while arg_idx <= 7 {
+        let arg = get_cmd_arg(arg_idx);
+        if str_len(arg) > 0 {
+            if str_eq(arg, "-o") {
+                arg_idx = arg_idx + 1;
+                let next_arg = get_cmd_arg(arg_idx);
+                if str_len(next_arg) > 0 {
+                    out_path = next_arg;
+                }
+            } else if str_eq(arg, "--target") {
+                arg_idx = arg_idx + 1;
+                let next_target = get_cmd_arg(arg_idx);
+                if str_len(next_target) > 0 {
+                    target_backend = target_from_name(next_target);
+                }
+            } else if str_starts_with_prefix(arg, "--target=") {
+                let t_name = str_sub(arg, 9, str_len(arg) - 9);
+                target_backend = target_from_name(t_name);
+            }
+        }
+        arg_idx = arg_idx + 1;
     }
 
-    print("[gat] Compiling ", src_path, " -> ", out_path, "...\n");
-    let ok = compile_to_binary(src_path, out_path);
+    if str_len(out_path) == 0 {
+        if target_backend.target_id == 2 {
+            out_path = "output";
+        } else {
+            out_path = "output.exe";
+        }
+    }
+
+    print("[gat] Compiling ", src_path, " -> ", out_path, " (target: ", target_backend.name, ")...\n");
+    let ok = compile_to_binary_target(src_path, out_path, target_backend);
     if ok {
         print("[gat] Build succeeded: ", out_path, "\n");
         return 0;

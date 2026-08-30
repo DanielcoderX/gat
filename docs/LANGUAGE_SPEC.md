@@ -1,7 +1,7 @@
 # Gat Language Specification
 
-**Version:** 0.3.0  
-**Target:** x86-64 Native (Windows PE32+) *[Linux ELF64: Planned Future Target]*  
+**Version:** 0.4.0  
+**Target:** x86-64 Native (Windows PE32+ via IAT, Linux ELF64 via Direct Kernel Syscalls)  
 **Memory Model:** Automatic Reference Counting (ARC)
 
 ---
