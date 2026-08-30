@@ -7,8 +7,8 @@ on:
     branches: [ master, main ]
 
 jobs:
-  test:
-    name: Build & Verify Self-Hosting Compiler
+  test-windows:
+    name: Build & Verify Windows Toolchain
     runs-on: windows-latest
 
     steps:
@@ -24,3 +24,62 @@ jobs:
         shell: powershell
         run: |
           powershell -ExecutionPolicy Bypass -File .\test.ps1
+
+      - name: Cross-Compile Linux Binaries
+        shell: powershell
+        run: |
+          & .\bin\gat.exe build src\compiler.gat -o bin\gatc --target=linux
+          & .\bin\gat.exe build cli\gat.gat -o bin\gat --target=linux
+
+      - name: Upload Linux Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: |
+            bin/gat
+            bin/gatc
+
+  test-linux:
+    name: Verify Linux Native Direct Syscalls & Bootstrap
+    needs: test-windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Linux Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-binaries
+          path: bin
+
+      - name: Run Native Linux Tests
+        run: |
+          chmod +x bin/gat bin/gatc
+
+          echo "=== 1. CLI Version ==="
+          ./bin/gat version
+
+          echo "=== 2. Native Compilation (Hello World) ==="
+          ./bin/gatc examples/hello.gat -o hello_linux --target=linux
+          chmod +x hello_linux
+          ./hello_linux
+
+          echo "=== 3. Linux Direct Syscall Suite ==="
+          ./bin/gat build examples/test_linux_suite.gat -o suite_linux --target=linux
+          chmod +x suite_linux
+          ./suite_linux
+
+          echo "=== 4. Linux Print & Interpolation Suite ==="
+          ./bin/gat build examples/test_linux_print.gat -o print_linux --target=linux
+          chmod +x print_linux
+          ./print_linux
+
+          echo "=== 5. Native Linux Self-Compilation Bootstrap ==="
+          ./bin/gatc src/compiler.gat -o gatc-gen2 --target=linux
+          chmod +x gatc-gen2
+          ./gatc-gen2 src/compiler.gat -o gatc-gen3 --target=linux
+          chmod +x gatc-gen3
+          cmp gatc-gen2 gatc-gen3
+          echo "Native Linux 3-stage bitwise identity verified: 100% exact match!"

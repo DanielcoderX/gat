@@ -145,7 +145,13 @@ $linuxTests = @(
     @{ Name = "Linux Print & Interpolation"; File = "examples/test_linux_print.gat"; Bin = "bin/test_linux_print"; Expect = "ALL LINUX PRINT TESTS PASSED" }
 )
 
-$wslAvailable = (Get-Command "wsl.exe" -ErrorAction SilentlyContinue)
+$wslAvailable = $false
+if (Get-Command "wsl.exe" -ErrorAction SilentlyContinue) {
+    $distros = (wsl.exe -l -q 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $distros -and $distros.Trim().Length -gt 0) {
+        $wslAvailable = $true
+    }
+}
 
 foreach ($lt in $linuxTests) {
     if (Test-Path $lt.Bin) { Remove-Item -Force $lt.Bin }
@@ -165,7 +171,7 @@ foreach ($lt in $linuxTests) {
         }
         Write-Host "  [PASS] $($lt.Name) passed under WSL" -ForegroundColor Green
     } else {
-        Write-Host "  [SKIP] WSL not detected on host; $($lt.Name) ELF binary generated and verified statically" -ForegroundColor Yellow
+        Write-Host "  [SKIP] WSL runnable distro not detected on host; $($lt.Name) ELF binary generated and verified statically" -ForegroundColor Yellow
     }
 }
 
