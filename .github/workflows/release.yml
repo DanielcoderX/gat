@@ -95,7 +95,7 @@ jobs:
 
           # Compute SHA256 Checksums
           cd "${DIST_DIR}"
-          sha256sum * > SHA256SUMS.txt
+          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Upload Build Artifacts
@@ -149,10 +149,12 @@ jobs:
     name: Publish GitHub Release
     needs: [build-and-package, verify-linux-native]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
 
     steps:
-      - name: Checkout repository (for release notes)
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Download Release Artifacts
@@ -174,6 +176,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ steps.release_meta.outputs.tag }}
           name: Gat Language ${{ steps.release_meta.outputs.tag }}
           files: |
@@ -182,10 +185,11 @@ jobs:
             dist/SHA256SUMS.txt
           draft: false
           prerelease: false
+          generate_release_notes: true
           body: |
             # Gat Programming Language Release ${{ steps.release_meta.outputs.tag }}
 
-            `gat` is a self-hosted, statically typed systems programming language with automatic reference counting (ARC), direct machine code emission, and 100% bitwise-reproducible self-hosting across Windows and Linux.
+            `gat` is a self-hosted, statically typed systems programming language featuring automatic reference counting (ARC), direct machine code emission, and 100% bitwise-reproducible self-hosting across Windows and Linux.
 
             ## Highlights & Features in this Release
             - **100% Self-Hosting on Windows and Linux**: Native bitwise-reproducible compiler bootstraps identically on Windows (PE32+) and Linux (ELF64).
