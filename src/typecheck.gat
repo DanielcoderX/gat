@@ -99,6 +99,46 @@ fn tc_is_weak_type(t_name: string) -> bool {
     return false;
 }
 
+fn tc_is_thread_safe_arg_type(tc: TypeChecker, type_name: string) -> bool {
+    if str_eq(type_name, "i64") || str_eq(type_name, "bool") || str_eq(type_name, "void") {
+        return true;
+    }
+    if str_eq(type_name, "string") {
+        return false;
+    }
+    if str_len(type_name) >= 4 {
+        if str_eq(str_sub(type_name, 0, 4), "raw ") {
+            return true;
+        }
+    }
+    if str_len(type_name) >= 5 {
+        if str_eq(str_sub(type_name, 0, 5), "weak ") {
+            return false;
+        }
+    }
+    if tc_is_fn_type(type_name) {
+        return true;
+    }
+    let ti = tc_find_type(tc, type_name);
+    if ti == nil {
+        return true;
+    }
+    if ti.is_ref == 1 {
+        return false;
+    }
+    if ti.kind == TYPE_STRUCT {
+        let f = ti.fields;
+        while f != nil {
+            if !tc_is_thread_safe_arg_type(tc, f.type_name) {
+                return false;
+            }
+            f = f.next;
+        }
+        return true;
+    }
+    return true;
+}
+
 fn tc_find_type(tc: TypeChecker, name: string) -> TypeInfo {
     let t_name = name;
     if str_len(t_name) > 4 {
@@ -146,7 +186,13 @@ fn tc_is_builtin(name: string) -> bool {
        str_eq(name, "weak_retain") || str_eq(name, "weak_release") ||
        str_eq(name, "strong_count") || str_eq(name, "weak_count") ||
        str_eq(name, "__gat_weak_retain") || str_eq(name, "__gat_weak_release") ||
-       str_eq(name, "__gat_strong_count") || str_eq(name, "__gat_weak_count") {
+       str_eq(name, "__gat_strong_count") || str_eq(name, "__gat_weak_count") ||
+       str_eq(name, "thread_spawn") || str_eq(name, "thread_join") ||
+       str_eq(name, "mutex_init") || str_eq(name, "mutex_lock_raw") ||
+       str_eq(name, "mutex_unlock_raw") || str_eq(name, "mutex_destroy_raw") ||
+       str_eq(name, "__gat_thread_spawn") || str_eq(name, "__gat_thread_join") ||
+       str_eq(name, "__gat_mutex_init") || str_eq(name, "__gat_mutex_lock") ||
+       str_eq(name, "__gat_mutex_unlock") || str_eq(name, "__gat_mutex_destroy") {
         return true;
     }
     return false;
@@ -419,7 +465,32 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
                 msg = str_concat(msg, str_from_int(arg_count));
                 tc_report_error(tc, msg);
             }
+
+            if str_eq(fn_name, "thread_spawn") || str_eq(fn_name, "__gat_thread_spawn") {
+                if expr.child != nil && expr.child.next != nil {
+                    let arg_node = expr.child.next;
+                    let arg_type = tc_check_expr(tc, arg_node, locals);
+                    if !tc_is_thread_safe_arg_type(tc, arg_type) {
+                        let msg = str_concat("cannot pass reference-counted type '", arg_type);
+                        msg = str_concat(msg, "' across thread boundary in thread_spawn");
+                        tc_report_error(tc, msg);
+                    }
+                }
+            }
+
             return fn_sym.type_name;
+        }
+
+        if str_eq(fn_name, "thread_spawn") || str_eq(fn_name, "__gat_thread_spawn") {
+            if expr.child != nil && expr.child.next != nil {
+                let arg_node = expr.child.next;
+                let arg_type = tc_check_expr(tc, arg_node, locals);
+                if !tc_is_thread_safe_arg_type(tc, arg_type) {
+                    let msg = str_concat("cannot pass reference-counted type '", arg_type);
+                    msg = str_concat(msg, "' across thread boundary in thread_spawn");
+                    tc_report_error(tc, msg);
+                }
+            }
         }
         return "i64";
     }

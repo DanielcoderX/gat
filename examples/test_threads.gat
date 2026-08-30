@@ -1,0 +1,117 @@
+// ============================================================================
+// examples/test_threads.gat - Concurrency, Threads & Mutex Test Suite
+// ============================================================================
+
+import "std/thread.gat";
+import "std/sync.gat";
+import "std/process.gat";
+
+struct WorkerTask {
+    id: i64;
+    multiplier: i64;
+    out_ptr: raw i64;
+}
+
+fn worker_compute(task: raw WorkerTask) {
+    let res = task.id * task.multiplier;
+    task.out_ptr[0] = res;
+}
+
+struct SharedState {
+    counter: i64;
+    mtx: Mutex;
+}
+
+fn worker_increment(state: raw SharedState) {
+    let i = 0;
+    while i < 10000 {
+        mutex_lock(state.mtx);
+        state.counter = state.counter + 1;
+        mutex_unlock(state.mtx);
+        i = i + 1;
+    }
+}
+
+fn test_basic_thread_spawn_join() -> bool {
+    print("--- 1. Testing Value-Type Thread Spawn & Join ---\n");
+    let out_buf: raw i64 = alloc_mem(16);
+    out_buf[0] = 0;
+    out_buf[1] = 0;
+
+    let t1 = new WorkerTask {
+        id: 7,
+        multiplier: 6,
+        out_ptr: out_buf
+    };
+    let t2 = new WorkerTask {
+        id: 10,
+        multiplier: 20,
+        out_ptr: out_buf + 8
+    };
+
+    let h1 = thread_spawn(worker_compute, raw t1);
+    let h2 = thread_spawn(worker_compute, raw t2);
+
+    thread_join(h1);
+    thread_join(h2);
+
+    let res1 = out_buf[0];
+    let res2 = out_buf[1];
+
+    if res1 != 42 {
+        print("[FAIL] res1 expected 42, got ", res1, "\n");
+        free_mem(out_buf);
+        return false;
+    }
+    if res2 != 200 {
+        print("[FAIL] res2 expected 200, got ", res2, "\n");
+        free_mem(out_buf);
+        return false;
+    }
+
+    free_mem(out_buf);
+    return true;
+}
+
+fn test_mutex_concurrency() -> bool {
+    print("--- 2. Testing Mutex-Protected Concurrent Increments ---\n");
+    let m = mutex_new();
+    let state = new SharedState {
+        counter: 0,
+        mtx: m
+    };
+
+    let h1 = thread_spawn(worker_increment, raw state);
+    let h2 = thread_spawn(worker_increment, raw state);
+    let h3 = thread_spawn(worker_increment, raw state);
+    let h4 = thread_spawn(worker_increment, raw state);
+
+    thread_join(h1);
+    thread_join(h2);
+    thread_join(h3);
+    thread_join(h4);
+
+    let final_count = state.counter;
+    if final_count != 40000 {
+        print("[FAIL] final_count expected 40000, got ", final_count, "\n");
+        return false;
+    }
+
+    print("  -> Final count = ", final_count, " (exact mutual exclusion verified!)\n");
+    return true;
+}
+
+fn main() -> i64 {
+    print("=== Concurrency, Threads & Synchronization Test ===\n");
+
+    if !test_basic_thread_spawn_join() {
+        return 1;
+    }
+
+    if !test_mutex_concurrency() {
+        return 1;
+    }
+
+    print("[PASS] All thread and synchronization tests passed successfully!\n");
+    return 0;
+}

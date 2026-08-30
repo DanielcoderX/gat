@@ -1,0 +1,39 @@
+// ============================================================================
+// std/sync.gat - Synchronization Primitives (Mutex)
+// ============================================================================
+
+class Mutex {
+    cs_buf: raw i8;
+
+    deinit {
+        if self.cs_buf != nil {
+            mutex_destroy_raw(self.cs_buf);
+            free_mem(self.cs_buf);
+            self.cs_buf = nil;
+        }
+    }
+}
+
+fn mutex_new() -> Mutex {
+    let buf: raw i8 = alloc_mem(40); // 40 bytes for CRITICAL_SECTION on Win64
+    mutex_init(buf);
+    return new Mutex {
+        cs_buf: buf
+    };
+}
+
+fn mutex_lock(m: Mutex) {
+    if m != nil {
+        if m.cs_buf != nil {
+            mutex_lock_raw(m.cs_buf);
+        }
+    }
+}
+
+fn mutex_unlock(m: Mutex) {
+    if m != nil {
+        if m.cs_buf != nil {
+            mutex_unlock_raw(m.cs_buf);
+        }
+    }
+}

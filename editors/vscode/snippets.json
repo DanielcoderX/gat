@@ -1,0 +1,64 @@
+{
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:params}) -> ${3:i64} {",
+      "\t${0:// body}",
+      "\treturn ${4:0};",
+      "}"
+    ],
+    "description": "Function definition"
+  },
+  "Class Definition": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name} {",
+      "\t${2:field}: ${3:i64};",
+      "}"
+    ],
+    "description": "Class declaration"
+  },
+  "Struct Definition": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:i64};",
+      "}"
+    ],
+    "description": "Struct declaration"
+  },
+  "Enum Definition": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Variant1},",
+      "\t${3:Variant2}(${4:i64})",
+      "}"
+    ],
+    "description": "Enum declaration"
+  },
+  "Main Function": {
+    "prefix": "main",
+    "body": [
+      "fn main() -> i64 {",
+      "\t${0:print(\"Hello Gat!\\n\");}",
+      "\treturn 0;",
+      "}"
+    ],
+    "description": "Main entrypoint"
+  },
+  "Match Statement": {
+    "prefix": "match",
+    "body": [
+      "match ${1:expr} {",
+      "\t${2:Enum}.${3:Variant}(${4:val}) => {",
+      "\t\t${0}",
+      "\t},",
+      "\t${2:Enum}.${5:Variant2} => {",
+      "\t\t",
+      "\t}",
+      "}"
+    ],
+    "description": "Pattern match statement"
+  }
+}

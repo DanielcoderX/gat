@@ -140,6 +140,33 @@ class Node {
 }
 ```
 
+### 4.4 Concurrency & Thread-Boundary Isolation
+Gat provides native OS threading via `std/thread.gat` while preserving non-atomic ARC performance and memory soundness through compile-time thread-boundary isolation:
+- **Thread-Local Heaps**: Each thread manages its own reference-counted heap. Reference counts (`strong_count`, `weak_count`) remain non-atomic and fast.
+- **Thread-Boundary Safety**: The compiler enforces at compile time that reference-counted types (`class`, `string`, `weak T`, or structs containing them) cannot be passed across thread boundaries in `thread_spawn`.
+- **Value & Raw Data Sharing**: Threads can receive primitive data (`i64`, `bool`), value `struct`s containing only plain data, and explicit `raw T` pointers.
+- **Synchronization (`Mutex`)**: `std/sync.gat` provides `Mutex` (wrapping Win32 Critical Sections) for safe, serialized mutation of shared `raw T` state across threads.
+
+```gat
+import "std/thread.gat";
+import "std/sync.gat";
+
+struct Task {
+    id: i64;
+    out_ptr: raw i64;
+}
+
+fn worker(task: raw Task) {
+    task.out_ptr[0] = task.id * 10;
+}
+
+let out: raw i64 = alloc_mem(8);
+let t = new Task { id: 5, out_ptr: out };
+let h = thread_spawn(worker, raw t);
+thread_join(h);
+// out[0] == 50
+```
+
 ---
 
 ## 5. Declarations

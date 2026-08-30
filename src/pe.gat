@@ -34,7 +34,7 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
 
     // IAT
     let iat_start = rdata.size;
-    let num_imports: i64 = 18;
+    let num_imports: i64 = 23;
     let i: i64 = 0;
     while i <= num_imports {
         bb_write_u64(rdata, 0);
@@ -60,7 +60,7 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
 
     // Hint/Name Table
     let hn_offsets = bb_new(128);
-    let imp_names = "ExitProcess,GetStdHandle,WriteFile,GetProcessHeap,HeapAlloc,HeapFree,CreateFileA,ReadFile,CloseHandle,GetFileSizeEx,GetCommandLineA,DeleteFileA,GetCurrentProcessId,CreateProcessA,WaitForSingleObject,GetExitCodeProcess,GetTempPathA,Sleep,";
+    let imp_names = "ExitProcess,GetStdHandle,WriteFile,GetProcessHeap,HeapAlloc,HeapFree,CreateFileA,ReadFile,CloseHandle,GetFileSizeEx,GetCommandLineA,DeleteFileA,GetCurrentProcessId,CreateProcessA,WaitForSingleObject,GetExitCodeProcess,GetTempPathA,Sleep,CreateThread,InitializeCriticalSection,EnterCriticalSection,LeaveCriticalSection,DeleteCriticalSection,";
     let imp_start = 0;
     i = 0;
     while i < str_len(imp_names) {
@@ -198,6 +198,11 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
             else if str_eq(rel.sym, "__iat_GetExitCodeProcess") { imp_idx = 15; }
             else if str_eq(rel.sym, "__iat_GetTempPathA") { imp_idx = 16; }
             else if str_eq(rel.sym, "__iat_Sleep") { imp_idx = 17; }
+            else if str_eq(rel.sym, "__iat_CreateThread") { imp_idx = 18; }
+            else if str_eq(rel.sym, "__iat_InitializeCriticalSection") { imp_idx = 19; }
+            else if str_eq(rel.sym, "__iat_EnterCriticalSection") { imp_idx = 20; }
+            else if str_eq(rel.sym, "__iat_LeaveCriticalSection") { imp_idx = 21; }
+            else if str_eq(rel.sym, "__iat_DeleteCriticalSection") { imp_idx = 22; }
             let iat_slot_rva = rdata_rva + iat_start + imp_idx * 8;
             let from_rva = text_rva + rel.offset + 4;
             let diff = iat_slot_rva - from_rva;

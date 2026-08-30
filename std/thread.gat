@@ -1,0 +1,14 @@
+// ============================================================================
+// std/thread.gat - Thread Management & Concurrency
+// ============================================================================
+
+// thread_spawn launches an OS thread running entry(arg).
+// Enforced at compile-time: arg cannot be a reference-counted class, string, or weak reference.
+fn thread_spawn<T>(entry: fn(T) -> void, arg: T) -> i64 {
+    return __gat_thread_spawn(entry, arg);
+}
+
+// thread_join waits for thread completion and closes the thread handle.
+fn thread_join(handle: i64) {
+    __gat_thread_join(handle);
+}

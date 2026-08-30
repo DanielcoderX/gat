@@ -1,0 +1,45 @@
+{
+  "name": "gat-language",
+  "displayName": "Gat Language Support",
+  "description": "Official Language Support & LSP for the Gat Programming Language",
+  "version": "0.3.0",
+  "publisher": "gat-lang",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Snippets"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:gat"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "gat",
+        "aliases": ["Gat", "gat"],
+        "extensions": [".gat"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "gat",
+        "scopeName": "source.gat",
+        "path": "./syntaxes/gat.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "gat",
+        "path": "./snippets.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "echo 'Ready for packaging'"
+  }
+}

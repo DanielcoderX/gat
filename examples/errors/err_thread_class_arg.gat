@@ -1,0 +1,15 @@
+import "std/thread.gat";
+
+class Person {
+    id: i64;
+}
+
+fn worker(p: Person) {
+    print("id: ", p.id, "\n");
+}
+
+fn main() -> i64 {
+    let p = new Person { id: 10 };
+    thread_spawn(worker, p);
+    return 0;
+}

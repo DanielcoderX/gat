@@ -57,6 +57,10 @@ fn main() -> i64 {
         return 1;
     }
 
+    if str_eq(arg2, "--check") || str_eq(arg2, "-c") || str_eq(src_path, "--check") {
+        return 0;
+    }
+
     let ir_ctx = ir_new(tc);
     ir_build_program(ir_ctx, prog);
     opt_optimize_program(ir_ctx);

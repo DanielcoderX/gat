@@ -50,12 +50,16 @@
 
 ---
 
-## 2. Deliberately Excluded Features (Deferred Post-Bootstrap)
+## 2. Features Implemented Post-Bootstrap (in Full `gat`)
 
-- Generics / Type parameters
-- Closures / First-class anonymous functions
-- Pattern matching (`match` / `switch`)
-- Operator overloading
-- Trait / Interface inheritance
-- Multithreading & Concurrency primitives
-- Automatic cycle collection
+- **Generics**: Uniform 64-bit word-sized generic type erasure (`class Pair<T, U>`, functions)
+- **First-Class Functions**: Function pointer values and function types `fn(T1, T2) -> TRet`
+- **Pattern Matching**: Exhaustive `match` on tagged `enum`s
+- **Cycle Collection**: `weak T` non-owning references and `weak_upgrade`
+- **Concurrency**: Native OS threading (`std/thread.gat`) and synchronization (`std/sync.gat` `Mutex`) with compile-time thread-boundary reference isolation
+
+## 3. Deliberately Excluded Features (Current Scope Boundary)
+
+- Full heap-captured closures (anonymous closures capturing outer scope)
+- Shared mutable `class` reference graphs across threads (thread-local heaps enforced)
+- Trait / Interface dynamic dispatch tables
