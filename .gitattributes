@@ -1,0 +1,17 @@
+# Auto-detect text files and perform LF normalization
+* text=auto
+
+# Executable binaries
+*.exe binary
+*.dll binary
+*.zip binary
+
+# Gat language source files
+*.gat text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.yml text eol=lf
+
+# PowerShell scripts (Windows)
+*.ps1 text eol=crlf

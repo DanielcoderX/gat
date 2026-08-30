@@ -1,395 +1,75 @@
 # The `gat` Programming Language
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform: Windows x64](https://img.shields.io/badge/Platform-Windows%20x64-lightgrey.svg)](#project-status)
+[![Self-Hosting: 100%](https://img.shields.io/badge/Self--Hosting-100%25%20Bitwise%20Verified-brightgreen.svg)](#self-hosting-verification)
+[![Tooling: LSP 3.17](https://img.shields.io/badge/Tooling-LSP%20%2B%20VS%20Code-orange.svg)](editors/vscode/)
+
 `gat` is a compiled, low-level systems programming language featuring automatic reference counting (ARC), direct Windows x86-64 Portable Executable (PE32+) machine code emission, and a 100% bitwise-reproducible **self-hosted compiler**.
 
 ---
 
 ## Key Highlights
 
-- **100% Self-Hosting**: The compiler in `src/compiler.gat` compiles itself, generating identical binaries across all bootstrap stages (`gatc-v2 == gatc-v3 == gatc-v4`).
+- **100% Self-Hosting**: The compiler (`src/compiler.gat`) is written entirely in `gat` and compiles itself, producing bitwise-identical binaries across all bootstrap stages (`stage2 == stage3 == stage4`).
 - **Zero External Toolchain Dependencies**: Emits standalone Windows PE (`.exe`) binaries directly without linkers (like `link.exe` or `lld`), assemblers (like `nasm`), or C runtimes (`MSVCRT`).
 - **Dual Memory Model**:
   - `struct`: Stack-allocated value types (zero heap or refcount overhead).
   - `class`: Heap-allocated reference types managed via non-atomic ARC.
   - `deinit`: RAII-style destructor hooks executed automatically when reference count reaches zero.
-  - `raw T`: Unsafe raw pointer escape hatch for memory buffers and systems programming.
+  - `weak T`: Non-owning weak references and `weak_upgrade` for deterministic cycle breaking.
+  - `raw T`: Unsafe raw pointer escape hatch for memory buffers and low-level systems programming.
 - **Borrowed-by-Default Calling Convention**: Function parameters are borrowed by default, eliminating redundant retain/release cycles on calls.
-- **Windows Fastcall ABI**: Conforms strictly to Microsoft x64 Fastcall (`RCX`, `RDX`, `R8`, `R9`, 32-byte shadow space, 16-byte stack alignment).
+- **First-Class Functions**: First-class function pointers and function types (`fn(T1, T2) -> TRet`) supporting higher-order combinators (`map`, `filter`).
+- **Native Concurrency**: OS threads (`std/thread.gat`) and synchronization (`std/sync.gat` `Mutex`) with compile-time thread-boundary reference isolation.
+- **Linear-Scan Register Allocator & Optimizer**: Live-interval register allocator utilizing `RAX`, `RCX`, `RDX`, `R8`-`R14`, `RBX`, combined with constant folding, dead-code elimination (DCE), and ARC retain/release elision.
+- **Package Manager & Namespaces**: Minimal manifest (`gat.mod`), lockfile (`gat.lock`), Git dependency resolution (`gat fetch`), and collision-free namespaced imports (`import "..." as pkg;`).
+- **Language Server (LSP)**: First-party Language Server Protocol (LSP 3.17) implementation and VS Code extension with real-time compiler diagnostics, go-to-definition, hover, and document symbols.
 
 ---
 
 ## Quick Start
 
-### 1. Build the Bootstrap Compiler (Go)
-Requires **Go 1.22+** on Windows x64.
+### 1. Clone the Repository
+The repository ships with pre-built self-hosting seed binaries (`bin/gatc.exe` and `bin/gat.exe`), allowing immediate compilation with zero setup:
 
 ```powershell
-go build -o bin/gatc-v0.exe ./cmd/gatc
+git clone https://github.com/DanielcoderX/gat.git
+cd gat
 ```
 
-### 2. Compile and Run a Program
-```powershell
-# Compile hello.gat to hello.exe
-.\bin\gatc-v0.exe examples/hello.gat -o bin/hello.exe
-
-# Run the emitted executable
-.\bin\hello.exe
-```
-
----
-
-## Language Guide & Tutorial
-
-### 1. Basic Structure & Hello World
-
-Every `gat` program contains function declarations and a `main` entry point:
-
-```gat
-fn main() -> i64 {
-    print("Hello from gat!\n");
-    return 0;
-}
-```
-
----
-
-### 2. Primitive Types & Literals
-
-| Type | Description | Literals / Examples |
-|---|---|---|
-| `i64` | Signed 64-bit integer | `0`, `42`, `-100`, `0x1000` |
-| `bool` | Boolean | `true`, `false` |
-| `string` | Null-terminated byte string | `"hello\n"`, `"gat"` |
-| `void` | Empty return type | Functions without return value |
-| `raw T` | Raw pointer to type `T` | `raw i8`, `raw Point` |
-
----
-
-### 3. Variables & Assignment
-
-Variables are declared with `let`. Types can be explicitly annotated or inferred:
-
-```gat
-fn variables_demo() {
-    let a = 10;                     // inferred i64
-    let b: i64 = 20;                // explicitly typed
-    let msg: string = "compiler";   // string variable
-    let flag: bool = true;          // bool variable
-
-    a = a + b;                      // reassignment
-    print("a + b = ", a, "\n");
-}
-```
-
----
-
-### 4. Operators & Precedence
-
-`gat` supports standard arithmetic, relational, and logical operators:
-
-- **Arithmetic**: `+`, `-`, `*`, `/`, `%`
-- **Comparisons**: `==`, `!=`, `<`, `<=`, `>`, `>=`
-- **Logical**: `&&`, `||`, `!`
-- **Bitwise / Memory**: `raw`, `[]` indexing
-
-```gat
-fn math_ops(x: i64, y: i64) -> i64 {
-    let sum = x + y;
-    let diff = x - y;
-    let prod = x * y;
-    let quot = x / y;
-    let rem = x % y;
-
-    if (x > 0 && y > 0) || !(x == 0) {
-        return sum * prod;
-    }
-    return 0;
-}
-```
-
----
-
-### 5. Control Flow
-
-#### If / Else
-```gat
-fn max(a: i64, b: i64) -> i64 {
-    if a > b {
-        return a;
-    } else {
-        return b;
-    }
-}
-```
-
-#### While Loops
-```gat
-fn countdown(start: i64) {
-    let i = start;
-    while i > 0 {
-        print("T-minus: ", i, "\n");
-        i = i - 1;
-    }
-    print("Liftoff!\n");
-}
-```
-
----
-
-### 6. Structs (Value Types)
-
-`struct` types are stack-allocated and copied by value with zero heap allocation:
-
-```gat
-struct Point {
-    x: i64;
-    y: i64;
-}
-
-fn print_point(p: Point) {
-    print("Point(", p.x, ", ", p.y, ")\n");
-}
-
-fn main() -> i64 {
-    let pt = Point { x: 10, y: 25 };
-    pt.x = pt.x + 5;
-    print_point(pt);
-    return 0;
-}
-```
-
----
-
-### 7. Classes (Reference Types & ARC)
-
-`class` types are heap-allocated via `new` and tracked by Automatic Reference Counting. You can define an optional `deinit` block that executes when the instance is reclaimed:
-
-```gat
-class Node {
-    value: i64;
-    next: Node;
-
-    deinit {
-        print("[deinit] Node freed with value = ", self.value, "\n");
-    }
-}
-
-fn create_list() -> Node {
-    let head = new Node { value: 1, next: nil };
-    let second = new Node { value: 2, next: nil };
-    head.next = second;
-    return head;
-}
-
-fn main() -> i64 {
-    let list = create_list();
-    print("Head value: ", list.value, "\n");
-    // ARC releases `list` and `second` automatically at scope exit
-    return 0;
-}
-```
-
----
-
-### 8. Unsafe Raw Pointers & Memory Management (`raw T`)
-
-For low-level byte manipulation, dynamic buffers, or binary formats:
-
-```gat
-struct ByteBuffer {
-    data: raw i8;
-    size: i64;
-    cap: i64;
-}
-
-fn bb_new(initial_cap: i64) -> ByteBuffer {
-    let p: raw i8 = alloc_mem(initial_cap);
-    return ByteBuffer {
-        data: p,
-        size: 0,
-        cap: initial_cap
-    };
-}
-
-fn bb_write_byte(bb: raw ByteBuffer, val: i64) {
-    bb.data[bb.size] = val;
-    bb.size = bb.size + 1;
-}
-
-fn bb_free(bb: ByteBuffer) {
-    free_mem(bb.data);
-}
-```
-
----
-
-### 9. Enums, Tagged Unions & Pattern Matching
-
-`gat` supports algebraic data types (`enum`) with optional payload variants, and structural pattern matching via `match`:
-
-```gat
-enum Option {
-    None,
-    Some(i64)
-}
-
-enum Color {
-    Red,
-    Green,
-    Blue
-}
-
-fn handle_option(opt: Option) {
-    match opt {
-        Option.Some(val) => {
-            print("Received value: ", val, "\n");
-        }
-        Option.None => {
-            print("Nothing here.\n");
-        }
-    }
-}
-
-fn handle_color(c: Color) {
-    match c {
-        Color.Red => { print("Red\n"); }
-        Color.Green => { print("Green\n"); }
-        Color.Blue => { print("Blue\n"); }
-        _ => { print("Unknown\n"); }
-    }
-}
-```
-
----
-
-### 10. Fixed-Size Arrays & Indexing
-
-Array literals `[e1, e2, ...]` allocate contiguous elements on the stack:
-
-```gat
-fn array_demo() {
-    let arr = [10, 20, 30, 40];
-    print("arr[0] = ", arr[0], "\n");
-    print("arr[2] = ", arr[2], "\n");
-}
-```
-
----
-
-### 11. Modules & Multi-File Imports
-
-`gat` supports multi-file modular projects with automatic circular import deduplication via `import`:
-
-```gat
-// math_lib.gat
-struct MathResult {
-    sum: i64;
-    prod: i64;
-}
-
-fn math_calc(a: i64, b: i64) -> MathResult {
-    return new MathResult {
-        sum: a + b,
-        prod: a * b
-    };
-}
-```
-
-```gat
-// main.gat
-import "math_lib.gat";
-
-fn main() -> i64 {
-    let res = math_calc(7, 6);
-    print("Sum: ", res.sum, ", Prod: ", res.prod, "\n");
-    return 0;
-}
-```
-
----
-
-### 12. Built-in Runtime Library
-
-| Function | Signature | Description |
-|---|---|---|
-| `print(...)` | Variadic | Prints strings, integers, and booleans to stdout |
-| `alloc_mem` | `fn alloc_mem(size: i64) -> raw i8` | Allocates zero-initialized heap memory via Windows `HeapAlloc` |
-| `free_mem` | `fn free_mem(ptr: raw i8)` | Frees allocated memory via Windows `HeapFree` |
-| `read_file` | `fn read_file(path: string) -> string` | Reads entire file into a null-terminated string |
-| `write_file` | `fn write_file(path: string, data: raw i8, size: i64) -> i64` | Writes buffer to file via Windows `CreateFileA`/`WriteFile` |
-| `str_len` | `fn str_len(s: string) -> i64` | Returns byte length of string |
-| `str_eq` | `fn str_eq(a: string, b: string) -> bool` | Compares two strings for equality |
-| `str_char` | `fn str_char(s: string, idx: i64) -> i64` | Returns byte character at index |
-| `str_sub` | `fn str_sub(s: string, start: i64, len: i64) -> string` | Substring extraction |
-| `str_concat` | `fn str_concat(a: string, b: string) -> string` | Concatenates two strings |
-| `str_from_int` | `fn str_from_int(n: i64) -> string` | Formats 64-bit integer to decimal string |
-| `get_cmd_arg` | `fn get_cmd_arg(idx: i64) -> string` | Parses command-line arguments |
-
----
-
-### 13. Standard Library (`std/`)
-
-Gat comes with a modular standard library written in pure Gat:
-
-- **`std/str.gat`**: `StringBuilder`, `str_trim`, `str_starts_with`, `str_ends_with`, `str_index_of`, `str_parse_int`
-- **`std/io.gat`**: `io_read_text`, `io_write_text`, `io_append_text`, `io_path_combine`, `io_path_ext`, `io_path_filename`
-- **`std/vec.gat`**: `Vector` dynamic array (`vec_new`, `vec_push`, `vec_pop`, `vec_get`, `vec_set`, `vec_len`, `vec_clear`)
-- **`std/map.gat`**: `Map` hash dictionary (`map_new`, `map_put`, `map_get`, `map_has`, `map_len`, DJB2 hashing)
-
-```gat
-import "std/str.gat";
-import "std/vec.gat";
-import "std/map.gat";
-
-fn main() -> i64 {
-    // StringBuilder
-    let sb = sb_new(16);
-    sb_append(sb, "Gat ");
-    sb_append_int(sb, 2026);
-    print("SB: ", sb_to_string(sb), "\n");
-
-    // Dynamic Vector
-    let v = vec_new(4);
-    vec_push(v, 100);
-    vec_push(v, 200);
-    print("v[0] = ", vec_get(v, 0), ", len = ", vec_len(v), "\n");
-
-    // Hash Map
-    let m = map_new(16);
-    map_put(m, "compiler", 1);
-    print("has compiler: ", map_has(m, "compiler"), "\n");
-    return 0;
-}
-```
-
----
-
-## Self-Hosting Toolchain & Verification
-
-The `gat` compiler is 100% self-hosted and written entirely in `gat` (`src/compiler.gat`). It has **zero dependencies** and emits native Windows x86-64 PE executables directly without any external assembler, linker, or runtime.
-
-### Self-Hosting Verification
-
-To verify that the self-hosted compiler reproduces itself bitwise identically:
+### 2. Run a Program
+Execute any `.gat` file directly with the CLI tool:
 
 ```powershell
-# 1. Compile compiler.gat with seed binary
-.\bin\gatc.exe src\compiler.gat -o bin\gatc-stage2.exe
-
-# 2. Compile compiler.gat with stage2 binary
-.\bin\gatc-stage2.exe src\compiler.gat -o bin\gatc-stage3.exe
-
-# 3. Verify 100% bitwise identity
-fc.exe /b bin\gatc-stage2.exe bin\gatc-stage3.exe
+.\bin\gat.exe run examples\hello.gat
 ```
 
-Expected output:
-```
-Comparing files BIN\gatc-stage2.exe and BIN\GATC-STAGE3.EXE
-FC: no differences encountered
+### 3. Compile to Standalone Native Executable
+Compile source code directly into a native `.exe` binary:
+
+```powershell
+.\bin\gat.exe build examples\hello.gat -o hello.exe
+.\hello.exe
 ```
 
-### Running the Test Suite
+### 4. Fast Semantic & Type Check
+Perform fast type checking and diagnostic inspection without emitting PE binaries:
+
+```powershell
+.\bin\gat.exe check examples\hello.gat
+```
+
+### 5. Rebuilding the Self-Hosting Compiler
+To recompile the `gat` compiler from source using the compiler itself:
+
+```powershell
+.\bin\gatc.exe src\compiler.gat -o bin\gatc.exe
+.\bin\gatc.exe cli\gat.gat -o bin\gat.exe
+```
+
+### 6. Run the Full Test Suite & Bootstrap Verification
+Verify all 23 language test suites, diagnostic negative tests, LSP verification, and 3-stage bitwise identity:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\test.ps1
@@ -397,26 +77,240 @@ powershell -ExecutionPolicy Bypass -File .\test.ps1
 
 ---
 
-## Directory Layout
+## Project Status & Design Boundaries
+
+- **Platform**: Windows x86-64 native target. Support for Linux (ELF) and macOS (Mach-O) is planned for future backend development.
+- **Memory Safety & ARC**: Single-threaded heaps utilize zero-overhead non-atomic ARC. Reference-counted types (`class`, `string`, `weak T`) are forbidden at compile time from crossing thread boundaries.
+- **Concurrency**: Native OS threads communicate through value types, raw memory buffers (`raw T`), and `Mutex` critical sections.
+- **Generics**: Uniform 64-bit word-sized type erasure model for generic classes (`class Vector<T>`) and functions.
+- **Package Management**: Decentralized Git-based dependency fetching directly from source repositories (e.g. `github.com/...`) and local paths.
+
+---
+
+## Language Overview
+
+### Types
+
+| Type | Kind | Size (Bytes) | Description |
+| :--- | :--- | :--- | :--- |
+| `i64` | Primitive | 8 | 64-bit signed two's complement integer |
+| `i8` | Primitive | 1 | 8-bit signed integer / ASCII byte |
+| `bool` | Primitive | 8 | Boolean (`true`, `false`) |
+| `string` | Reference | 8 | Null-terminated string buffer |
+| `void` | Unit | 0 | Unit return type |
+| `raw T` | Pointer | 8 | Unsafe raw memory pointer (e.g. `raw i8`, `raw Point`) |
+| `weak T` | Weak Ref | 8 | Non-owning reference for breaking ARC cycles |
+| `fn(...) -> Ret`| Function | 8 | First-class function pointer |
+| `struct S` | Value | Sum of fields | Stack-allocated value aggregate |
+| `class C` | Reference | 8 (Heap) | ARC heap-allocated class with optional `deinit` |
+
+---
+
+### Code Examples
+
+#### Hello World & String Interpolation
+```gat
+fn main() -> i64 {
+    let name = "World";
+    print("Hello, {name}!\n");
+    return 0;
+}
+```
+
+#### Structs (Value Types) & Classes (ARC Reference Types)
+```gat
+struct Point {
+    x: i64;
+    y: i64;
+}
+
+class Buffer {
+    data: raw i8;
+    size: i64;
+
+    deinit {
+        if self.data != nil {
+            free_mem(self.data);
+            self.data = nil;
+        }
+    }
+}
+
+fn make_buffer(sz: i64) -> Buffer {
+    let buf: raw i8 = alloc_mem(sz);
+    return new Buffer {
+        data: buf,
+        size: sz
+    };
+}
+```
+
+#### Weak References & Cycle Breaking (`weak T`)
+```gat
+import "std/weak.gat";
+import "std/option.gat";
+
+class Node {
+    value: i64;
+    next: Node;
+    prev: weak Node; // Weak back-pointer prevents reference cycle leak
+}
+
+fn create_linked_pair() {
+    let n1 = new Node { value: 1, next: nil, prev: nil };
+    let n2 = new Node { value: 2, next: nil, prev: weak_from(n1) };
+    n1.next = n2;
+}
+```
+
+#### First-Class Functions
+```gat
+fn apply(f: fn(i64, i64) -> i64, a: i64, b: i64) -> i64 {
+    return f(a, b);
+}
+
+fn add(x: i64, y: i64) -> i64 {
+    return x + y;
+}
+
+fn main() -> i64 {
+    let res = apply(add, 20, 22);
+    print("Result: {res}\n"); // 42
+    return 0;
+}
+```
+
+#### Native Threads & Synchronization
+```gat
+import "std/thread.gat";
+import "std/sync.gat";
+
+struct Task {
+    counter: raw i64;
+    mtx: Mutex;
+}
+
+fn worker(t: raw Task) {
+    mutex_lock(t.mtx);
+    t.counter[0] = t.counter[0] + 1;
+    mutex_unlock(t.mtx);
+}
+
+fn main() -> i64 {
+    let m = mutex_new();
+    let count: raw i64 = alloc_mem(8);
+    count[0] = 0;
+
+    let t = new Task { counter: count, mtx: m };
+    let h1 = thread_spawn(worker, raw t);
+    let h2 = thread_spawn(worker, raw t);
+
+    thread_join(h1);
+    thread_join(h2);
+
+    print("Counter: {count[0]}\n"); // 2
+    return 0;
+}
+```
+
+#### Standard Library Modules & Namespaces
+```gat
+import "std/str.gat";
+import "std/fs.gat";
+import "std/vec.gat";
+import "std/map.gat";
+
+// Namespaced module import
+import "examples/modules/pkg_a/lib.gat" as math_pkg;
+
+fn main() -> i64 {
+    let sb = sb_new(64);
+    sb_append(sb, "Gat ");
+    sb_append(sb, "Toolchain");
+    let s = sb_to_string(sb);
+
+    let v = vec_new();
+    vec_push(v, 100);
+    vec_push(v, 200);
+
+    let val = math_pkg.compute(5);
+    return 0;
+}
+```
+
+---
+
+## Package Manager (`gat.mod`)
+
+Gat projects declare dependencies in `gat.mod`:
 
 ```
-gat/
-├── bin/
-│   └── gatc.exe         # Pure native seed compiler (self-hosted)
-├── std/                 # Standard Library in pure Gat
-│   ├── str.gat          # StringBuilder & string helpers
-│   ├── io.gat           # File I/O & path helpers
-│   ├── vec.gat          # Dynamic vector/array
-│   └── map.gat          # DJB2 hash map
-├── examples/            # Example .gat source programs & test suite
-│   ├── hello.gat        # Minimal hello world test
-│   ├── ret42.gat        # Exit code test
-│   ├── e2e_arc.gat      # ARC lifecycle and destructor test
-│   ├── test_enum_match.gat # Enums, match & array tests
-│   ├── test_std.gat     # Standard library test suite
-│   └── test_gatmin.gat  # Gat-Min feature test suite
-├── src/
-│   └── compiler.gat     # Self-hosted compiler implementation (3.7k lines)
-├── test.ps1             # Native test runner & bootstrap validator
-└── README.md            # Language and toolchain documentation
+module my_app
+
+require github.com/user/gat-json v1.0.0
+require ./local_packages/math_lib v0.1.0
 ```
+
+- Initialize a project: `gat init my_app`
+- Fetch & cache dependencies: `gat fetch` (generates `gat.lock` and populates `.gat/deps/`)
+- See [docs/MODULES.md](docs/MODULES.md) for full module and package management documentation.
+
+---
+
+## Editor Support (VS Code & LSP)
+
+An official Visual Studio Code extension and standalone Language Server Protocol (LSP 3.17) server are included in `editors/vscode/`:
+- **Features**: Syntax highlighting, real-time compiler error squiggles, go-to-definition, hover documentation, document symbols outline, and snippets.
+- **Install**: Link `editors/vscode/` into `%USERPROFILE%\.vscode\extensions\gat-language`.
+- See [editors/vscode/README.md](editors/vscode/README.md) for details.
+
+---
+
+## Self-Hosting Verification & Architecture
+
+The `gat` compiler is 100% self-hosted and emits native machine code directly:
+
+```mermaid
+graph LR
+    Src[Source .gat] --> Lex[Lexer]
+    Lex --> Parse[Parser]
+    Parse --> TC[Typechecker]
+    TC --> IR[3-Address IR]
+    IR --> Opt[Optimizer & DCE]
+    Opt --> RegAlloc[Linear-Scan RegAlloc]
+    RegAlloc --> Codegen[x86-64 Machine Code]
+    Codegen --> PE[PE32+ Writer]
+    PE --> Exe[Native .exe]
+```
+
+### 3-Stage Bitwise Identity Verification
+To confirm that compiler builds are 100% deterministic and reproducible:
+
+```powershell
+# 1. Compile compiler with seed binary -> stage2
+.\bin\gatc.exe src\compiler.gat -o bin\gatc-stage2.exe
+
+# 2. Compile compiler with stage2 binary -> stage3
+.\bin\gatc-stage2.exe src\compiler.gat -o bin\gatc-stage3.exe
+
+# 3. Compile compiler with stage3 binary -> stage4
+.\bin\gatc-stage3.exe src\compiler.gat -o bin\gatc-stage4.exe
+
+# 4. Compare bitwise equality across all stages
+fc.exe /b bin\gatc-stage2.exe bin\gatc-stage3.exe
+fc.exe /b bin\gatc-stage3.exe bin\gatc-stage4.exe
+```
+
+---
+
+## Documentation
+
+- [Language Specification](docs/LANGUAGE_SPEC.md): Full syntax, memory model, and typing rules.
+- [Modules & Package Manager](docs/MODULES.md): Namespaced imports, manifest format, and dependency fetching.
+- [GitHub Setup & Contributing](docs/GITHUB_SETUP.md): Repository metadata, CI configuration, and release workflow.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
