@@ -943,6 +943,13 @@ fn cg_emit_runtime_windows(cg: CodeGen) {
 fn cg_emit_runtime_linux(cg: CodeGen) {
     // 0. Entrypoint Trampoline (__gat_entry -> _start)
     cg_define_sym(cg, "__gat_entry");
+    // Linux kernel places [rsp] = argc, [rsp+8] = argv[0]
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x04); bb_write_u8(cg.code, 0x24); // mov rax, [rsp] (argc)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x05); // mov [_gat_argc], rax
+    cg_reloc(cg, "_gat_argc", 1);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x44); bb_write_u8(cg.code, 0x24); bb_write_u8(cg.code, 0x08); // lea rax, [rsp+8] (argv)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x05); // mov [_gat_argv], rax
+    cg_reloc(cg, "_gat_argv", 1);
     bb_write_u8(cg.code, 0x55);                                     // push rbp
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5); // mov rbp, rsp
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xE4); bb_write_u8(cg.code, 0xF0); // and rsp, -16
@@ -1616,6 +1623,21 @@ fn cg_emit_runtime_linux(cg: CodeGen) {
     bb_write_u8(cg.code, 0xBF); bb_write_u32(cg.code, 10);         // mov edi, 10 (sleep 10ms)
     cg_call_sym(cg, "__gat_sleep");
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0); // xor rax, rax
+    bb_write_u8(cg.code, 0xC3);                                     // ret
+
+    // 33. __gat_get_cmd_arg(rdi: idx) -> string
+    cg_define_sym(cg, "__gat_get_cmd_arg");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x05); // mov rax, [_gat_argc]
+    cg_reloc(cg, "_gat_argc", 1);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x39); bb_write_u8(cg.code, 0xC7); // cmp rdi, rax
+    bb_write_u8(cg.code, 0x7D); bb_write_u8(cg.code, 12);           // jge +12 (.Lgca_empty)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x05); // mov rax, [_gat_argv]
+    cg_reloc(cg, "_gat_argv", 1);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x04); bb_write_u8(cg.code, 0xF8); // mov rax, [rax + rdi*8]
+    bb_write_u8(cg.code, 0xC3);                                     // ret
+    // .Lgca_empty:
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x05); // lea rax, [rip + str_empty_const]
+    cg_reloc(cg, "str_empty_const", 1);
     bb_write_u8(cg.code, 0xC3);                                     // ret
 }
 

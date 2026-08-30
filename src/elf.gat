@@ -7,7 +7,13 @@ fn elf_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> boo
     let out_buf = bb_new(16384);
     let rdata = bb_new(4096);
 
-    // Build .rdata payload (string constants)
+    // Build .rdata payload (string constants & static globals)
+    let rdata_argc_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_argc
+
+    let rdata_argv_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_argv
+
     let rdata_str_true_off = rdata.size;
     bb_write_str(rdata, "true"); bb_write_u8(rdata, 0);
 
@@ -46,7 +52,11 @@ fn elf_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> boo
         let p_code: raw i8 = cg.code.data;
         let target_vaddr: i64 = 0;
 
-        if str_eq(rel.sym, "str_true_const") {
+        if str_eq(rel.sym, "_gat_argc") {
+            target_vaddr = data_vaddr + rdata_argc_off;
+        } else if str_eq(rel.sym, "_gat_argv") {
+            target_vaddr = data_vaddr + rdata_argv_off;
+        } else if str_eq(rel.sym, "str_true_const") {
             target_vaddr = data_vaddr + rdata_str_true_off;
         } else if str_eq(rel.sym, "str_false_const") {
             target_vaddr = data_vaddr + rdata_str_false_off;

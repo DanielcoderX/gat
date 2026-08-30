@@ -1,0 +1,199 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v0.1.0)'
+        required: false
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-package:
+    name: Build, Gate & Package Toolchain
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (for LSP tests)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Determine Version
+        id: get_version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VER="${{ github.event.inputs.version }}"
+          else
+            VER="${GITHUB_REF_NAME}"
+          fi
+          echo "version=${VER}" >> $GITHUB_OUTPUT
+          echo "Target Release Version: ${VER}"
+
+      - name: Gate 1 - Full Test Suite
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\test.ps1
+
+      - name: Gate 2 - Windows 3-Stage Bitwise Bootstrap Verification
+        shell: powershell
+        run: |
+          Write-Host "=== Verifying Windows 3-Stage Self-Hosting Reproducibility ===" -ForegroundColor Cyan
+          & .\bin\gatc.exe src\compiler.gat -o bin\stage2.exe
+          & .\bin\stage2.exe src\compiler.gat -o bin\stage3.exe
+          & .\bin\stage3.exe src\compiler.gat -o bin\stage4.exe
+          $diff = (fc.exe /b bin\stage3.exe bin\stage4.exe | Out-String)
+          if (-not $diff.Contains("no differences encountered")) {
+            Write-Error "Bitwise reproducibility failure between stage3 and stage4!`n$diff"
+            exit 1
+          }
+          Write-Host "Windows bitwise identity verified: 100% exact match!" -ForegroundColor Green
+          Remove-Item -Force bin\stage2.exe, bin\stage3.exe, bin\stage4.exe
+
+      - name: Build Fresh Native Toolchains (Windows & Linux)
+        shell: powershell
+        run: |
+          Write-Host "=== Building Release Binaries from Source ===" -ForegroundColor Cyan
+          # 1. Fresh Windows Binaries
+          & .\bin\gatc.exe src\compiler.gat -o bin\gatc.exe
+          & .\bin\gatc.exe cli\gat.gat -o bin\gat.exe
+
+          # 2. Cross-Compile Native Linux Binaries
+          & .\bin\gat.exe build src\compiler.gat -o bin\gatc --target=linux
+          & .\bin\gat.exe build cli\gat.gat -o bin\gat --target=linux
+
+      - name: Package Release Archives
+        shell: bash
+        run: |
+          VER="${{ steps.get_version.outputs.version }}"
+          DIST_DIR="dist"
+          mkdir -p "${DIST_DIR}"
+
+          # Windows Package
+          WIN_PKG_NAME="gat-${VER}-windows-x64"
+          mkdir -p "${WIN_PKG_NAME}/bin"
+          cp bin/gat.exe bin/gatc.exe "${WIN_PKG_NAME}/bin/"
+          cp -r std docs examples README.md LICENSE "${WIN_PKG_NAME}/"
+          7z a "${DIST_DIR}/${WIN_PKG_NAME}.zip" "${WIN_PKG_NAME}"
+
+          # Linux Package
+          LINUX_PKG_NAME="gat-${VER}-linux-x64"
+          mkdir -p "${LINUX_PKG_NAME}/bin"
+          cp bin/gat bin/gatc "${LINUX_PKG_NAME}/bin/"
+          cp -r std docs examples README.md LICENSE "${LINUX_PKG_NAME}/"
+          tar -czvf "${DIST_DIR}/${LINUX_PKG_NAME}.tar.gz" "${LINUX_PKG_NAME}"
+
+          # Compute SHA256 Checksums
+          cd "${DIST_DIR}"
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/*
+          if-no-files-found: error
+
+  verify-linux-native:
+    name: Verify Native Linux Bootstrap on Ubuntu
+    needs: build-and-package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist
+
+      - name: Extract Linux Archive & Smoke Test Native Toolchain
+        run: |
+          cd dist
+          tar -xzvf gat-*-linux-x64.tar.gz
+          cd gat-*-linux-x64
+          chmod +x bin/gat bin/gatc
+
+          echo "=== 1. Testing CLI Version ==="
+          ./bin/gat version
+
+          echo "=== 2. Testing Native Hello World Compilation ==="
+          ./bin/gatc examples/hello.gat -o hello_test --target=linux
+          chmod +x hello_test
+          ./hello_test
+
+          echo "=== 3. Testing Linux Full Feature Suite ==="
+          ./bin/gat build examples/test_linux_suite.gat -o test_suite --target=linux
+          chmod +x test_suite
+          ./test_suite
+
+          echo "=== 4. Testing Native Linux-Hosted Self-Compilation Bootstrap ==="
+          ./bin/gatc src/compiler.gat -o gatc-gen2 --target=linux
+          chmod +x gatc-gen2
+          ./gatc-gen2 src/compiler.gat -o gatc-gen3 --target=linux
+          chmod +x gatc-gen3
+          cmp gatc-gen2 gatc-gen3
+          echo "Native Linux 3-stage bitwise identity confirmed: 100% exact match!"
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-and-package, verify-linux-native]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository (for release notes)
+        uses: actions/checkout@v4
+
+      - name: Download Release Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist
+
+      - name: Determine Release Tag & Name
+        id: release_meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          name: Gat Language ${{ steps.release_meta.outputs.tag }}
+          files: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
+          draft: false
+          prerelease: false
+          body: |
+            # Gat Programming Language Release ${{ steps.release_meta.outputs.tag }}
+
+            `gat` is a self-hosted, statically typed systems programming language with automatic reference counting (ARC), direct machine code emission, and 100% bitwise-reproducible self-hosting across Windows and Linux.
+
+            ## Highlights & Features in this Release
+            - **100% Self-Hosting on Windows and Linux**: Native bitwise-reproducible compiler bootstraps identically on Windows (PE32+) and Linux (ELF64).
+            - **Zero-Dependency Direct Syscall Linux Target**: Emits static ELF64 executables utilizing direct Linux kernel syscalls (`mmap`, `nanosleep`, `open`, `read`, `write`, `fork`, `execve`, `clone`), requiring no libc or external linker.
+            - **Direct Windows Native Target**: Direct PE executable emission using `KERNEL32.dll` dynamic imports without external toolchain dependencies.
+            - **Dual Memory Model**: Value `struct`s, ARC reference-counted `class`es with `deinit` destructors, non-owning `weak T` references, and unsafe `raw T` pointers.
+            - **Linear-Scan Register Allocation & Optimization**: Live-interval register allocator combined with constant folding, dead-code elimination (DCE), and ARC retain/release elision.
+            - **Package Management & Tooling**: Built-in `gat init`, `gat fetch` (Git dependency resolution), and Language Server Protocol (LSP 3.17) support for VS Code.
+
+            ## Checksums (SHA-256)
+            See attached `SHA256SUMS.txt`.

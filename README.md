@@ -30,8 +30,12 @@
 
 ## Quick Start
 
-### 1. Clone the Repository
-The repository ships with pre-built self-hosting seed binaries (`bin/gatc.exe` and `bin/gat.exe`), allowing immediate compilation with zero setup:
+### 1. Download Pre-Built Toolchains
+Pre-compiled standalone releases with zero external dependencies are available on the [GitHub Releases](https://github.com/DanielcoderX/gat/releases) page:
+- **Windows x86-64**: `gat-v*-windows-x64.zip` (contains `bin/gat.exe`, `bin/gatc.exe`, `std/`)
+- **Linux x86-64**: `gat-v*-linux-x64.tar.gz` (contains `bin/gat`, `bin/gatc`, `std/`)
+
+Or clone from source directly:
 
 ```powershell
 git clone https://github.com/DanielcoderX/gat.git
