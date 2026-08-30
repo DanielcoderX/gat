@@ -122,31 +122,36 @@ jobs:
 
       - name: Extract Linux Archive & Smoke Test Native Toolchain
         run: |
-          cd dist
-          tar -xzvf gat-*-linux-x64.tar.gz
-          cd gat-*-linux-x64
-          chmod +x bin/gat bin/gatc
+          mkdir -p extracted_linux
+          tar -xzvf dist/gat-*-linux-x64.tar.gz -C extracted_linux
+          LINUX_DIR=$(find extracted_linux -maxdepth 1 -mindepth 1 -type d)
+          GATC="${LINUX_DIR}/bin/gatc"
+          GAT="${LINUX_DIR}/bin/gat"
+          chmod +x "${GATC}" "${GAT}"
 
           echo "=== 1. Testing CLI Version ==="
-          ./bin/gat version
+          "${GAT}" version
 
           echo "=== 2. Testing Native Hello World Compilation ==="
-          ./bin/gatc examples/hello.gat -o hello_test --target=linux
+          "${GATC}" examples/hello.gat -o hello_test --target=linux
           chmod +x hello_test
           ./hello_test
 
           echo "=== 3. Testing Linux Full Feature Suite ==="
-          ./bin/gat build examples/test_linux_suite.gat -o test_suite --target=linux
+          "${GAT}" build examples/test_linux_suite.gat -o test_suite --target=linux
           chmod +x test_suite
           ./test_suite
 
           echo "=== 4. Testing Native Linux-Hosted Self-Compilation Bootstrap ==="
-          ./bin/gatc ../../src/compiler.gat -o gatc-gen2 --target=linux
+          "${GATC}" src/compiler.gat -o gatc-gen2 --target=linux
           chmod +x gatc-gen2
-          ./gatc-gen2 ../../src/compiler.gat -o gatc-gen3 --target=linux
+          ./gatc-gen2 src/compiler.gat -o gatc-gen3 --target=linux
           chmod +x gatc-gen3
           cmp gatc-gen2 gatc-gen3
           echo "Native Linux 3-stage bitwise identity confirmed: 100% exact match!"
+
+          # Cleanup smoke artifacts
+          rm -rf extracted_linux hello_test test_suite gatc-gen2 gatc-gen3
 
   publish-release:
     name: Publish GitHub Release
