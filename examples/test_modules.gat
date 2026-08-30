@@ -1,0 +1,40 @@
+// ============================================================================
+// examples/test_modules.gat - Namespaced Module Import Test
+// ============================================================================
+
+import "examples/modules/pkg_a/lib.gat" as pkg_a;
+import "examples/modules/pkg_b/lib.gat" as pkg_b;
+
+fn main() -> i64 {
+    print("=== Testing Namespaced Module Imports ===\n");
+
+    let val_a = pkg_a.compute(5);
+    let val_b = pkg_b.compute(5);
+
+    print("pkg_a.compute(5) = ", val_a, "\n");
+    print("pkg_b.compute(5) = ", val_b, "\n");
+
+    if val_a != 50 {
+        print("[FAIL] Expected val_a == 50, got ", val_a, "\n");
+        return 1;
+    }
+    if val_b != 105 {
+        print("[FAIL] Expected val_b == 105, got ", val_b, "\n");
+        return 1;
+    }
+
+    let p1 = new pkg_a.Point { x: 10, y: 20 };
+    let p2 = new pkg_b.Point { x: 30, y: 40 };
+
+    if p1.x != 10 || p1.y != 20 {
+        print("[FAIL] p1 struct values incorrect\n");
+        return 1;
+    }
+    if p2.x != 30 || p2.y != 40 {
+        print("[FAIL] p2 struct values incorrect\n");
+        return 1;
+    }
+
+    print("[PASS] Namespaced module imports and symbol resolution passed!\n");
+    return 0;
+}

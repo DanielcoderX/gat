@@ -43,7 +43,9 @@ $testCases = @(
     @{ Name = "Option, Result & Formatted Output"; File = "examples/test_result_option.gat"; Args = @(); Expect = "All Option, Result, and formatting tests passed successfully!"; ExpectedCode = 0 },
     @{ Name = "First-Class Functions & Function Pointers"; File = "examples/test_first_class_fn.gat"; Args = @(); Expect = "All first-class function tests passed successfully!"; ExpectedCode = 0 },
     @{ Name = "Weak References & Cycle Collection"; File = "examples/test_weak_ref.gat"; Args = @(); Expect = "All weak reference and cycle tests passed successfully!"; ExpectedCode = 0 },
-    @{ Name = "Concurrency, Threads & Mutex"; File = "examples/test_threads.gat"; Args = @(); Expect = "All thread and synchronization tests passed successfully!"; ExpectedCode = 0 }
+    @{ Name = "Concurrency, Threads & Mutex"; File = "examples/test_threads.gat"; Args = @(); Expect = "All thread and synchronization tests passed successfully!"; ExpectedCode = 0 },
+    @{ Name = "Namespaced Modules & Imports"; File = "examples/test_modules.gat"; Args = @(); Expect = "Namespaced module imports and symbol resolution passed!"; ExpectedCode = 0 },
+    @{ Name = "Package Manager & Dependency Fetcher"; File = "examples/test_pkg_fetch.gat"; Args = @(); Expect = "Gat package manager and dependency fetching tests passed!"; ExpectedCode = 0 }
 )
 
 $passed = 0
@@ -91,7 +93,8 @@ $negativeTests = @(
     @{ Name = "Semantic Error (Arity Mismatch)"; File = "examples/errors/err_type_arity.gat"; ExpectErr = "[Type Error] function 'add' expects 2 arguments, got 3" },
     @{ Name = "Semantic Error (Invalid Struct Member)"; File = "examples/errors/err_type_field.gat"; ExpectErr = "[Type Error] type 'Point' has no field named 'z'" },
     @{ Name = "Semantic Error (Void Function Returning Value)"; File = "examples/errors/err_type_void_return.gat"; ExpectErr = "[Type Error] void function 'do_work' cannot return a value" },
-    @{ Name = "Safety Error (Passing Class Across Thread Boundary)"; File = "examples/errors/err_thread_class_arg.gat"; ExpectErr = "[Type Error] cannot pass reference-counted type 'Person' across thread boundary in thread_spawn" }
+    @{ Name = "Safety Error (Passing Class Across Thread Boundary)"; File = "examples/errors/err_thread_class_arg.gat"; ExpectErr = "[Type Error] cannot pass reference-counted type 'Person' across thread boundary in thread_spawn" },
+    @{ Name = "Semantic Error (Duplicate Declaration Across Flat Imports)"; File = "examples/errors/err_flat_import_collision.gat"; ExpectErr = "[Type Error] duplicate declaration of function 'helper' across flat imports" }
 )
 
 $negPassed = 0

@@ -1,0 +1,7 @@
+import "examples/errors/collision_a.gat";
+import "examples/errors/collision_b.gat";
+
+fn main() -> i64 {
+    let x = helper();
+    return 0;
+}

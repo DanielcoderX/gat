@@ -17,6 +17,7 @@ import "src/pe.gat";
 import "std/str.gat";
 import "std/fs.gat";
 import "std/process.gat";
+import "std/mod.gat";
 
 fn compile_to_binary(src_path: string, out_path: string) -> bool {
     let src = read_file(src_path);
@@ -73,6 +74,8 @@ fn print_usage() {
     print("Gat Toolchain CLI v0.3.0\n\n");
     print("Usage: gat <command> [options]\n\n");
     print("Commands:\n");
+    print("  init [module_name]               Initialize a new gat.mod manifest\n");
+    print("  fetch                            Fetch and resolve dependencies\n");
     print("  build <file.gat> [-o <out.exe>]  Compile source to native executable\n");
     print("  run <file.gat>                   Compile and execute immediately\n");
     print("  check <file.gat>                 Fast typecheck and diagnostic check\n");
@@ -219,6 +222,43 @@ fn run_check() -> i64 {
     return 0;
 }
 
+fn run_init() -> i64 {
+    let mod_name = get_cmd_arg(2);
+    if str_len(mod_name) == 0 {
+        mod_name = "my_project";
+    }
+    if fs_exists("gat.mod") {
+        print("[Error] gat.mod already exists in current directory.\n");
+        return 1;
+    }
+    let ok = mod_init_file(mod_name);
+    if ok {
+        print("[gat init] Created gat.mod for module '", mod_name, "'.\n");
+        return 0;
+    } else {
+        print("[Error] Failed to create gat.mod.\n");
+        return 1;
+    }
+}
+
+fn run_fetch() -> i64 {
+    let manifest_path = "gat.mod";
+    let arg2 = get_cmd_arg(2);
+    if str_len(arg2) > 0 {
+        manifest_path = arg2;
+    }
+    if !fs_exists(manifest_path) {
+        print("[Error] Manifest '", manifest_path, "' not found. Run 'gat init' first.\n");
+        return 1;
+    }
+    let ok = mod_fetch_deps(manifest_path);
+    if ok {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
 fn main() -> i64 {
     let cmd = get_cmd_arg(1);
     if str_len(cmd) == 0 || str_eq(cmd, "help") || str_eq(cmd, "--help") || str_eq(cmd, "-h") {
@@ -229,6 +269,14 @@ fn main() -> i64 {
     if str_eq(cmd, "version") || str_eq(cmd, "--version") || str_eq(cmd, "-v") {
         print("Gat v0.3.0 (Pure Self-Hosting Native Compiler)\n");
         return 0;
+    }
+
+    if str_eq(cmd, "init") {
+        return run_init();
+    }
+
+    if str_eq(cmd, "fetch") || str_eq(cmd, "get") {
+        return run_fetch();
     }
 
     if str_eq(cmd, "build") {

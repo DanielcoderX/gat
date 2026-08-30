@@ -120,6 +120,7 @@ fn lookup_keyword(ident: string) -> i64 {
     if str_eq(ident, "import") { return TOK_IMPORT; }
     if str_eq(ident, "for") { return TOK_FOR; }
     if str_eq(ident, "in") { return TOK_IN; }
+    if str_eq(ident, "as") { return TOK_AS; }
     return TOK_IDENT;
 }
 

@@ -1,0 +1,59 @@
+// ============================================================================
+// examples/test_pkg_fetch.gat - Package Manager (gat init / fetch) End-to-End Test
+// ============================================================================
+
+import "std/str.gat";
+import "std/fs.gat";
+import "std/process.gat";
+import "std/mod.gat";
+
+fn main() -> i64 {
+    print("=== Testing Gat Package Manager (gat.mod & fetch) ===\n");
+
+    let manifest_content = "module test_app\n\nrequire examples/modules/pkg_a v1.0.0\nrequire examples/modules/pkg_b v2.1.0\n";
+    let ok = fs_write_all("test_gat.mod", manifest_content);
+    if !ok {
+        print("[FAIL] Could not write test_gat.mod\n");
+        return 1;
+    }
+
+    let m = mod_parse_manifest(manifest_content);
+    if !str_eq(m.module_name, "test_app") {
+        print("[FAIL] Module name parsed incorrectly: ", m.module_name, "\n");
+        return 1;
+    }
+
+    let dep_count = 0;
+    let cur = m.deps_head;
+    while cur != nil {
+        dep_count = dep_count + 1;
+        cur = cur.next;
+    }
+    if dep_count != 2 {
+        print("[FAIL] Expected 2 deps, got ", str_from_int(dep_count), "\n");
+        return 1;
+    }
+
+    let fetch_ok = mod_fetch_deps("test_gat.mod");
+    if !fetch_ok {
+        print("[FAIL] mod_fetch_deps failed\n");
+        return 1;
+    }
+
+    if !fs_exists("gat.lock") {
+        print("[FAIL] gat.lock was not created\n");
+        return 1;
+    }
+
+    if !fs_exists(".gat/deps/pkg_a/lib.gat") || !fs_exists(".gat/deps/pkg_b/lib.gat") {
+        print("[FAIL] Dependencies were not cached to .gat/deps/\n");
+        return 1;
+    }
+
+    // Clean up test files
+    fs_delete_file("test_gat.mod");
+    fs_delete_file("gat.lock");
+
+    print("[PASS] Gat package manager and dependency fetching tests passed!\n");
+    return 0;
+}

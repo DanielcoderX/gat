@@ -4,3 +4,5 @@ bin/test_*
 bin/main.exe
 *.tmp
 tmp_*
+*.zip
+.gat/

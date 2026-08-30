@@ -60,6 +60,7 @@ let TOK_FOR: i64 = 59;
 let TOK_IN: i64 = 60;
 let TOK_DOTDOT: i64 = 61;
 let TOK_WEAK: i64 = 62;
+let TOK_AS: i64 = 63;
 
 fn token_kind_name(kind: i64) -> string {
     if kind == TOK_EOF { return "end of file"; }
@@ -87,6 +88,7 @@ fn token_kind_name(kind: i64) -> string {
     if kind == TOK_MATCH { return "match"; }
     if kind == TOK_FOR { return "for"; }
     if kind == TOK_IN { return "in"; }
+    if kind == TOK_AS { return "as"; }
     if kind == TOK_DOTDOT { return ".."; }
     if kind == TOK_PLUS { return "+"; }
     if kind == TOK_MINUS { return "-"; }

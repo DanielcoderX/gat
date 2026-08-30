@@ -199,6 +199,16 @@ enum Result<T, E> {
 }
 ```
 
+### 5.4 Modules & Namespaces (`import ... as ...`)
+```gat
+import "std/str.gat";                 // Spliced relative import
+import "pkg/math.gat" as math;        // Namespaced module import
+import "dep_json" as json;            // Cached dependency in .gat/deps/
+
+let res = math.add(1, 2);
+let pt = new math.Point { x: 10, y: 20 };
+```
+
 ---
 
 ## 6. Statements & Control Flow

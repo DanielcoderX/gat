@@ -1,0 +1,199 @@
+// ============================================================================
+// std/mod.gat - Gat Package & Module Manager Library
+// ============================================================================
+
+import "std/str.gat";
+import "std/fs.gat";
+import "std/process.gat";
+
+class ModDep {
+    name: string;
+    source: string;
+    version: string;
+    next: ModDep;
+}
+
+class Manifest {
+    module_name: string;
+    deps_head: ModDep;
+    deps_tail: ModDep;
+}
+
+fn mod_new_manifest(name: string) -> Manifest {
+    return new Manifest {
+        module_name: name,
+        deps_head: nil,
+        deps_tail: nil
+    };
+}
+
+fn mod_add_dep(m: Manifest, name: string, source: string, ver: string) {
+    let dep = new ModDep {
+        name: name,
+        source: source,
+        version: ver,
+        next: nil
+    };
+    if m.deps_head == nil {
+        m.deps_head = dep;
+        m.deps_tail = dep;
+    } else {
+        m.deps_tail.next = dep;
+        m.deps_tail = dep;
+    }
+}
+
+// Extract package name from repo path/URL (e.g. "github.com/foo/gat-json" -> "gat-json")
+fn mod_extract_pkg_name(source: string) -> string {
+    let len = str_len(source);
+    let last_slash = -1;
+    let i = 0;
+    while i < len {
+        let ch = str_char(source, i);
+        if ch == 47 || ch == 92 { // '/' or '\'
+            last_slash = i;
+        }
+        i = i + 1;
+    }
+    if last_slash >= 0 && last_slash + 1 < len {
+        let name = str_sub(source, last_slash + 1, len - last_slash - 1);
+        if str_ends_with(name, ".git") {
+            name = str_sub(name, 0, str_len(name) - 4);
+        }
+        return name;
+    }
+    return source;
+}
+
+// Parse gat.mod file content
+fn mod_parse_manifest(content: string) -> Manifest {
+    let m = mod_new_manifest("");
+    let len = str_len(content);
+    let i = 0;
+    let line_sb = sb_new(128);
+
+    while i < len {
+        let ch = str_char(content, i);
+        if ch == 10 || ch == 13 {
+            let line = str_trim(sb_to_string(line_sb));
+            sb_clear(line_sb);
+            if str_len(line) > 0 && !str_starts_with(line, "#") && !str_starts_with(line, "//") {
+                if str_starts_with(line, "module ") {
+                    m.module_name = str_trim(str_sub(line, 7, str_len(line) - 7));
+                } else if str_starts_with(line, "require ") {
+                    let req_body = str_trim(str_sub(line, 8, str_len(line) - 8));
+                    let space_idx = str_index_of(req_body, 32);
+                    if space_idx > 0 {
+                        let src = str_trim(str_sub(req_body, 0, space_idx));
+                        let ver = str_trim(str_sub(req_body, space_idx + 1, str_len(req_body) - space_idx - 1));
+                        let pkg_name = mod_extract_pkg_name(src);
+                        mod_add_dep(m, pkg_name, src, ver);
+                    }
+                }
+            }
+        } else {
+            sb_append_char(line_sb, ch);
+        }
+        i = i + 1;
+    }
+
+    let rem = str_trim(sb_to_string(line_sb));
+    if str_len(rem) > 0 {
+        if str_starts_with(rem, "module ") {
+            m.module_name = str_trim(str_sub(rem, 7, str_len(rem) - 7));
+        } else if str_starts_with(rem, "require ") {
+            let req_body = str_trim(str_sub(rem, 8, str_len(rem) - 8));
+            let space_idx = str_index_of(req_body, 32);
+            if space_idx > 0 {
+                let src = str_trim(str_sub(req_body, 0, space_idx));
+                let ver = str_trim(str_sub(req_body, space_idx + 1, str_len(req_body) - space_idx - 1));
+                let pkg_name = mod_extract_pkg_name(src);
+                mod_add_dep(m, pkg_name, src, ver);
+            }
+        }
+    }
+
+    return m;
+}
+
+// Generate default gat.mod
+fn mod_init_file(mod_name: string) -> bool {
+    let sb = sb_new(256);
+    sb_append(sb, "module ");
+    sb_append(sb, mod_name);
+    sb_append(sb, "\n\n// Dependencies (e.g. require github.com/user/repo v1.0.0)\n");
+    let content = sb_to_string(sb);
+    let written = write_file("gat.mod", content, str_len(content));
+    return written >= 0;
+}
+
+fn mod_is_local_source(src: string) -> bool {
+    if str_starts_with(src, "./") || str_starts_with(src, "../") || str_starts_with(src, "examples/") {
+        return true;
+    }
+    let test_lib = str_concat(src, "/lib.gat");
+    if str_len(read_file(test_lib)) > 0 {
+        return true;
+    }
+    return false;
+}
+
+// Fetch all dependencies declared in gat.mod
+fn mod_fetch_deps(manifest_path: string) -> bool {
+    let content = read_file(manifest_path);
+    if str_len(content) == 0 {
+        print("[Error] Could not read manifest: ", manifest_path, "\n");
+        return false;
+    }
+
+    let m = mod_parse_manifest(content);
+    print("[gat fetch] Resolving dependencies for module '", m.module_name, "'...\n");
+
+    let lock_sb = sb_new(512);
+    sb_append(lock_sb, "# Auto-generated by gat. DO NOT EDIT.\n");
+
+    let cur = m.deps_head;
+    let count = 0;
+
+    while cur != nil {
+        let dest_dir = str_concat(".gat/deps/", cur.name);
+        print("  -> Fetching ", cur.name, " (", cur.source, " @ ", cur.version, ")...\n");
+
+        if mod_is_local_source(cur.source) {
+            // Local path dependency
+            print("     Using local dependency path: ", cur.source, "\n");
+            // Make dest directory
+            proc_exec(str_concat("powershell -Command \"New-Item -ItemType Directory -Force -Path ", dest_dir, " | Out-Null\""));
+            proc_exec(str_concat("powershell -Command \"Copy-Item -Recurse -Force -Path '", str_concat(cur.source, str_concat("/*' -Destination '", str_concat(dest_dir, "'\"")))));
+        } else {
+            // Git remote dependency
+            if fs_exists(dest_dir) {
+                print("     Already fetched in ", dest_dir, "\n");
+            } else {
+                let git_cmd = str_concat("git clone --depth 1 --branch ", str_concat(cur.version, str_concat(" ", str_concat(cur.source, str_concat(" ", dest_dir)))));
+                let code = proc_exec(git_cmd);
+                if code != 0 {
+                    // Fallback to plain clone if branch tag not directly found
+                    let git_cmd2 = str_concat("git clone --depth 1 ", str_concat(cur.source, str_concat(" ", dest_dir)));
+                    code = proc_exec(git_cmd2);
+                }
+            }
+        }
+
+        sb_append(lock_sb, "lock ");
+        sb_append(lock_sb, cur.name);
+        sb_append(lock_sb, " ");
+        sb_append(lock_sb, cur.source);
+        sb_append(lock_sb, " ");
+        sb_append(lock_sb, cur.version);
+        sb_append(lock_sb, "\n");
+
+        count = count + 1;
+        cur = cur.next;
+    }
+
+    let lock_content = sb_to_string(lock_sb);
+    write_file("gat.lock", lock_content, str_len(lock_content));
+    print("[gat fetch] Successfully fetched ", str_from_int(count), " dependencies and updated gat.lock.\n");
+    return true;
+}

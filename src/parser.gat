@@ -367,6 +367,13 @@ fn parse_expression(p: Parser, prec: i64) -> ASTNode {
     } else if parser_cur_is(p, TOK_NEW) {
         parser_next_token(p);
         let type_name = p.cur_tok.lit;
+        if parser_peek_is(p, TOK_DOT) {
+            parser_next_token(p);
+            if parser_peek_is(p, TOK_IDENT) {
+                parser_next_token(p);
+                type_name = str_concat(type_name, str_concat(".", p.cur_tok.lit));
+            }
+        }
         if parser_peek_is(p, TOK_LT) {
             parser_next_token(p);
             while !parser_cur_is(p, TOK_GT) && !parser_cur_is(p, TOK_EOF) {
@@ -1178,12 +1185,21 @@ fn parse_program(p: Parser) -> ASTNode {
         } else if parser_cur_is(p, TOK_IMPORT) {
             parser_next_token(p);
             let imp_path = p.cur_tok.lit;
+            let alias_name = "";
+            if parser_peek_is(p, TOK_AS) {
+                parser_next_token(p);
+                if parser_peek_is(p, TOK_IDENT) {
+                    parser_next_token(p);
+                    alias_name = p.cur_tok.lit;
+                }
+            }
             if parser_peek_is(p, TOK_SEMICOLON) {
                 parser_next_token(p);
             }
             decl = new ASTNode {
                 kind: AST_IMPORT_DECL,
                 str_val: imp_path,
+                type_name: alias_name,
                 left: nil, right: nil, child: nil, next: nil
             };
         } else if parser_cur_is(p, TOK_LET) {
@@ -1222,6 +1238,55 @@ fn file_list_has(head: FileList, path: string) -> bool {
     return false;
 }
 
+fn ast_prefix_internal_refs(node: ASTNode, ns: string, decl_names: FileList) {
+    if node == nil { return; }
+
+    if node.kind == AST_CALL {
+        if file_list_has(decl_names, node.str_val) {
+            node.str_val = str_concat(ns, str_concat(".", node.str_val));
+        }
+    } else if node.kind == AST_NEW {
+        if file_list_has(decl_names, node.type_name) {
+            node.type_name = str_concat(ns, str_concat(".", node.type_name));
+        }
+    }
+
+    ast_prefix_internal_refs(node.left, ns, decl_names);
+    ast_prefix_internal_refs(node.right, ns, decl_names);
+    ast_prefix_internal_refs(node.child, ns, decl_names);
+    ast_prefix_internal_refs(node.next, ns, decl_names);
+}
+
+fn ast_prefix_module_symbols(prog: ASTNode, ns: string) {
+    if prog == nil || str_len(ns) == 0 { return; }
+
+    let decl_names: FileList = nil;
+    let d = prog.child;
+    while d != nil {
+        if d.kind == AST_FN_DECL || d.kind == AST_STRUCT_DECL ||
+           d.kind == AST_CLASS_DECL || d.kind == AST_ENUM_DECL {
+            let node = new FileList {
+                path: d.str_val,
+                next: decl_names
+            };
+            decl_names = node;
+        }
+        d = d.next;
+    }
+
+    d = prog.child;
+    while d != nil {
+        if d.kind == AST_FN_DECL || d.kind == AST_STRUCT_DECL ||
+           d.kind == AST_CLASS_DECL || d.kind == AST_ENUM_DECL {
+            d.str_val = str_concat(ns, str_concat(".", d.str_val));
+        }
+        if d.kind == AST_FN_DECL {
+            ast_prefix_internal_refs(d.child, ns, decl_names);
+        }
+        d = d.next;
+    }
+}
+
 fn resolve_imports(prog: ASTNode, loaded: FileList) -> ASTNode {
     let head_decl: ASTNode = nil;
     let tail_decl: ASTNode = nil;
@@ -1233,19 +1298,52 @@ fn resolve_imports(prog: ASTNode, loaded: FileList) -> ASTNode {
 
         if cur.kind == AST_IMPORT_DECL {
             let import_path = cur.str_val;
-            if !file_list_has(loaded, import_path) {
+            let alias_name = cur.type_name;
+
+            let actual_path = import_path;
+            let imported_src = read_file(actual_path);
+            if str_len(imported_src) == 0 {
+                // Try .gat/deps/<pkg>/<pkg>.gat
+                let dep_try1 = str_concat(".gat/deps/", str_concat(import_path, str_concat("/", str_concat(import_path, ".gat"))));
+                imported_src = read_file(dep_try1);
+                if str_len(imported_src) > 0 {
+                    actual_path = dep_try1;
+                    if str_len(alias_name) == 0 { alias_name = import_path; }
+                } else {
+                    // Try .gat/deps/<pkg>/lib.gat
+                    let dep_try2 = str_concat(".gat/deps/", str_concat(import_path, "/lib.gat"));
+                    imported_src = read_file(dep_try2);
+                    if str_len(imported_src) > 0 {
+                        actual_path = dep_try2;
+                        if str_len(alias_name) == 0 { alias_name = import_path; }
+                    } else {
+                        // Try .gat/deps/<pkg>/mod.gat
+                        let dep_try3 = str_concat(".gat/deps/", str_concat(import_path, "/mod.gat"));
+                        imported_src = read_file(dep_try3);
+                        if str_len(imported_src) > 0 {
+                            actual_path = dep_try3;
+                            if str_len(alias_name) == 0 { alias_name = import_path; }
+                        }
+                    }
+                }
+            }
+
+            if !file_list_has(loaded, actual_path) {
                 let node = new FileList {
-                    path: import_path,
+                    path: actual_path,
                     next: loaded.next
                 };
                 loaded.next = node;
 
-                let imported_src = read_file(import_path);
                 if str_len(imported_src) > 0 {
                     let imp_l = lexer_new(imported_src);
                     let imp_p = parser_new(imp_l);
                     let imp_prog = parse_program(imp_p);
                     let resolved_imp = resolve_imports(imp_prog, loaded);
+
+                    if str_len(alias_name) > 0 {
+                        ast_prefix_module_symbols(resolved_imp, alias_name);
+                    }
 
                     let imp_d = resolved_imp.child;
                     while imp_d != nil {

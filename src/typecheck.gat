@@ -201,6 +201,14 @@ fn tc_is_builtin(name: string) -> bool {
 fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
     if decl == nil { return; }
     if decl.kind == AST_FN_DECL {
+        let existing = tc_find_func(tc, decl.str_val);
+        if existing != nil {
+            let msg = str_concat("duplicate declaration of function '", decl.str_val);
+            msg = str_concat(msg, "' across flat imports");
+            tc_report_error(tc, msg);
+            return;
+        }
+
         let ret_type = decl.type_name;
         if str_len(ret_type) == 0 {
             ret_type = "i64";
@@ -251,6 +259,14 @@ fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
     }
 
     if decl.kind == AST_STRUCT_DECL || decl.kind == AST_CLASS_DECL {
+        let existing_t = tc_find_type(tc, decl.str_val);
+        if existing_t != nil {
+            let msg = str_concat("duplicate declaration of type '", decl.str_val);
+            msg = str_concat(msg, "' across flat imports");
+            tc_report_error(tc, msg);
+            return;
+        }
+
         let is_ref: i64 = 0;
         let k = TYPE_STRUCT;
         if decl.kind == AST_CLASS_DECL {

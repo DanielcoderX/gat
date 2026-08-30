@@ -6,7 +6,7 @@
 
 ## Key Highlights
 
-- **100% Self-Hosting**: The compiler in [`src/compiler.gat`](file:///c:/Users/Daniel/Desktop/gat/src/compiler.gat) compiles itself, generating identical binaries across all bootstrap stages (`gatc-v2 == gatc-v3 == gatc-v4`).
+- **100% Self-Hosting**: The compiler in `src/compiler.gat` compiles itself, generating identical binaries across all bootstrap stages (`gatc-v2 == gatc-v3 == gatc-v4`).
 - **Zero External Toolchain Dependencies**: Emits standalone Windows PE (`.exe`) binaries directly without linkers (like `link.exe` or `lld`), assemblers (like `nasm`), or C runtimes (`MSVCRT`).
 - **Dual Memory Model**:
   - `struct`: Stack-allocated value types (zero heap or refcount overhead).
@@ -366,7 +366,7 @@ fn main() -> i64 {
 
 ## Self-Hosting Toolchain & Verification
 
-The `gat` compiler is 100% self-hosted and written entirely in `gat` ([`src/compiler.gat`](file:///c:/Users/Daniel/Desktop/gat/src/compiler.gat)). It has **zero dependencies** and emits native Windows x86-64 PE executables directly without any external assembler, linker, or runtime.
+The `gat` compiler is 100% self-hosted and written entirely in `gat` (`src/compiler.gat`). It has **zero dependencies** and emits native Windows x86-64 PE executables directly without any external assembler, linker, or runtime.
 
 ### Self-Hosting Verification
 
