@@ -1305,7 +1305,7 @@ fn cg_emit_runtime_linux(cg: CodeGen) {
     bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 2);          // mov eax, 2 (sys_open)
     bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05);         // syscall
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC0); // test rax, rax
-    bb_write_u8(cg.code, 0x78); bb_write_u8(cg.code, 65);           // js +65 (.Lrf_fail)
+    bb_write_u8(cg.code, 0x78); bb_write_u8(cg.code, 99);          // js +99 (.Lrf_fail)
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xC3); // mov rbx, rax (fd)
     // sys_lseek(fd, 0, SEEK_END (2))
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xDF); // mov rdi, rbx
@@ -1368,7 +1368,7 @@ fn cg_emit_runtime_linux(cg: CodeGen) {
     bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 2);          // mov eax, 2 (sys_open)
     bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05);         // syscall
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC0); // test rax, rax
-    bb_write_u8(cg.code, 0x78); bb_write_u8(cg.code, 28);           // js +28 (.Lwf_fail)
+    bb_write_u8(cg.code, 0x78); bb_write_u8(cg.code, 46);           // js +46 (.Lwf_fail)
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xC3); // mov rbx, rax (fd)
     // sys_write(fd, data, size)
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xDF); // mov rdi, rbx
@@ -1416,7 +1416,7 @@ fn cg_emit_runtime_linux(cg: CodeGen) {
     bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 2);          // mov eax, 2 (sys_open)
     bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05);         // syscall
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC0); // test rax, rax
-    bb_write_u8(cg.code, 0x78); bb_write_u8(cg.code, 31);           // js +31 (.Lfs_fail)
+    bb_write_u8(cg.code, 0x78); bb_write_u8(cg.code, 36);           // js +36 (.Lfs_fail)
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xC3); // mov rbx, rax (fd)
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xDF); // mov rdi, rbx
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xF6); // xor rsi, rsi

@@ -111,6 +111,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -138,9 +141,9 @@ jobs:
           ./test_suite
 
           echo "=== 4. Testing Native Linux-Hosted Self-Compilation Bootstrap ==="
-          ./bin/gatc src/compiler.gat -o gatc-gen2 --target=linux
+          ./bin/gatc ../../src/compiler.gat -o gatc-gen2 --target=linux
           chmod +x gatc-gen2
-          ./gatc-gen2 src/compiler.gat -o gatc-gen3 --target=linux
+          ./gatc-gen2 ../../src/compiler.gat -o gatc-gen3 --target=linux
           chmod +x gatc-gen3
           cmp gatc-gen2 gatc-gen3
           echo "Native Linux 3-stage bitwise identity confirmed: 100% exact match!"
