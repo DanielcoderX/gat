@@ -14,6 +14,9 @@ fn elf_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> boo
     let rdata_argv_off = rdata.size;
     bb_write_u64(rdata, 0); // _gat_argv
 
+    let rdata_net_state_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_net_state
+
     let rdata_str_true_off = rdata.size;
     bb_write_str(rdata, "true"); bb_write_u8(rdata, 0);
 
@@ -62,6 +65,8 @@ fn elf_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> boo
             target_vaddr = data_vaddr + rdata_str_false_off;
         } else if str_eq(rel.sym, "str_empty_const") {
             target_vaddr = data_vaddr + rdata_str_empty_off;
+        } else if str_eq(rel.sym, "_gat_net_state") {
+            target_vaddr = data_vaddr + rdata_net_state_off;
         } else {
             let sym_cur = cg.syms_head;
             let found: i64 = 0;

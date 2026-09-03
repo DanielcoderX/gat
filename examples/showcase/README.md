@@ -19,6 +19,7 @@ Welcome to the **Gat** example gallery! This directory contains curated, beginne
 | 07 | [`07_modules.gat`](07_modules.gat) | Namespaced modules (`import ... as alias;`), modular code organization |
 | 08 | [`08_word_count_cli.gat`](08_word_count_cli.gat) | Command line arguments (`get_cmd_arg`), file I/O, text traversal |
 | 09 | [`09_cross_platform.gat`](09_cross_platform.gat) | Cross-platform APIs, Windows PE32+ and Linux ELF64 target support |
+| 10 | [`10_tcp_echo.gat`](10_tcp_echo.gat) | Sockets & networking (`std/net.gat`), TCP server/client, RAII socket deinit |
 
 ---
 

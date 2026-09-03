@@ -161,7 +161,11 @@ fn ir_get_expr_type(ctx: IRContext, expr: ASTNode) -> string {
             return "bool";
         } else if str_eq(callee, "str_len") || str_eq(callee, "str_char") ||
                   str_eq(callee, "alloc_mem") || str_eq(callee, "get_pid") ||
-                  str_eq(callee, "exec_cmd") {
+                  str_eq(callee, "exec_cmd") ||
+                  str_eq(callee, "net_socket") || str_eq(callee, "net_connect") ||
+                  str_eq(callee, "net_bind") || str_eq(callee, "net_listen") ||
+                  str_eq(callee, "net_accept") || str_eq(callee, "net_send") ||
+                  str_eq(callee, "net_recv") || str_eq(callee, "net_close") {
             return "i64";
         }
     } else if expr.kind == AST_ARRAY_LIT {

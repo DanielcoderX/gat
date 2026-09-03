@@ -20,6 +20,7 @@ Comprehensive documentation of all built-in modules in the Gat Standard Library.
 5. [`std/fs.gat` - File System Operations](#5-stdfsgat---file-system-operations)
 6. [`std/math.gat` - Mathematical Functions](#6-stdmathgat---mathematical-functions)
 7. [`std/process.gat` - Process & OS Utilities](#7-stdprocessgat---process--os-utilities)
+8. [`std/net.gat` - Sockets & TCP Networking](#8-stdnetgat---sockets--tcp-networking)
 
 ---
 
@@ -228,3 +229,55 @@ Suspends process execution for `ms` milliseconds.
 
 #### `proc_exit(code: i64)`
 Terminates the calling process with exit code `code`.
+
+---
+
+## 8. `std/net.gat` - Sockets & TCP Networking
+
+Import: `import "std/net.gat";`
+
+Provides cross-platform socket primitives and high-level TCP abstractions powered by direct kernel syscalls on Linux (x86-64 `sys_socket`, `sys_connect`, `sys_bind`, `sys_listen`, `sys_accept`, `sys_sendto`, `sys_recvfrom`, `sys_close`) and dynamic Winsock (`ws2_32.dll`) resolution on Windows.
+
+### Classes
+
+#### `class TcpStream`
+Manages an active client or inbound connection socket. Automatically invokes `net_close` on deallocation (`deinit`).
+* Field `fd: i64` - OS file descriptor or socket handle.
+
+#### `class TcpListener`
+Manages a listening TCP server socket. Automatically invokes `net_close` on deallocation (`deinit`).
+* Field `fd: i64` - OS server socket handle.
+
+### High-Level TCP Functions
+
+#### `tcp_connect(ip: string, port: i64) -> TcpStream`
+Connects to remote IPv4 host `ip` on `port`. Returns an owning `TcpStream` on success, or `nil` on failure.
+
+#### `tcp_listen(ip: string, port: i64) -> TcpListener`
+Binds to IPv4 host `ip` on `port` and starts listening for connections with a backlog queue of 128. If `ip` is `""` or `"0.0.0.0"`, binds to all interfaces (`INADDR_ANY`). Returns `TcpListener` on success, or `nil` on failure.
+
+#### `tcp_accept(listener: TcpListener) -> TcpStream`
+Accepts the next incoming connection from `listener`. Returns a new `TcpStream` for bidirectional communication, or `nil` on error.
+
+#### `tcp_send(stream: TcpStream, text: string) -> i64`
+Sends string `text` across `stream`. Returns number of bytes sent or negative error code.
+
+#### `tcp_recv(stream: TcpStream, max_len: i64) -> string`
+Receives up to `max_len` bytes from `stream` into a newly allocated string. Returns received string, or empty string `""` on EOF or failure.
+
+#### `tcp_close(stream: TcpStream)`
+Explicitly closes client stream before scope exit.
+
+#### `tcp_listener_close(listener: TcpListener)`
+Explicitly closes server listener socket.
+
+### Low-Level Socket Intrinsics
+
+* `net_af_inet() -> i64` - Returns IPv4 address family constant (`AF_INET = 2`).
+* `net_sock_stream() -> i64` - Returns stream socket type (`SOCK_STREAM = 1`).
+* `net_sock_dgram() -> i64` - Returns datagram socket type (`SOCK_DGRAM = 2`).
+* `net_ipproto_tcp() -> i64` - Returns TCP protocol constant (`IPPROTO_TCP = 6`).
+* `net_ipproto_udp() -> i64` - Returns UDP protocol constant (`IPPROTO_UDP = 17`).
+* `net_socket(domain: i64, kind: i64, proto: i64) -> i64` - Allocates OS socket.
+* `net_close(fd: i64) -> i64` - Closes OS socket.
+

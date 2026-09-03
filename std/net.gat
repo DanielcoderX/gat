@@ -1,0 +1,179 @@
+// ============================================================================
+// std/net.gat - Networking & TCP Socket Library
+// ============================================================================
+//
+// Provides low-level BSD/POSIX socket primitives and high-level TCP abstractions
+// targeting direct kernel syscalls on Linux and Winsock on Windows.
+
+import "std/str.gat";
+
+// Socket domain / address family
+fn net_af_inet() -> i64 { return 2; }
+
+// Socket types
+fn net_sock_stream() -> i64 { return 1; }
+fn net_sock_dgram() -> i64 { return 2; }
+
+// Socket protocols
+fn net_ipproto_tcp() -> i64 { return 6; }
+fn net_ipproto_udp() -> i64 { return 17; }
+
+// Helper to convert IPv4 string to 32-bit network-order integer
+fn net_ip_to_u32(ip: string) -> i64 {
+    if str_eq(ip, "") || str_eq(ip, "0.0.0.0") {
+        return 0;
+    }
+    if str_eq(ip, "127.0.0.1") || str_eq(ip, "localhost") {
+        return 16777343; // 127 + 1*16777216 = 16777343 (0x0100007F)
+    }
+    let b0: i64 = 0;
+    let b1: i64 = 0;
+    let b2: i64 = 0;
+    let b3: i64 = 0;
+    let cur_octet: i64 = 0;
+    let val: i64 = 0;
+    let len = str_len(ip);
+    let i: i64 = 0;
+    while i < len {
+        let ch = str_char(ip, i);
+        if ch == 46 { // '.'
+            if cur_octet == 0 { b0 = val; }
+            else if cur_octet == 1 { b1 = val; }
+            else if cur_octet == 2 { b2 = val; }
+            cur_octet = cur_octet + 1;
+            val = 0;
+        } else {
+            val = val * 10 + (ch - 48);
+        }
+        i = i + 1;
+    }
+    b3 = val;
+    return b0 + (b1 * 256) + (b2 * 65536) + (b3 * 16777216);
+}
+
+// ============================================================================
+// High-Level TCP Stream (Client Socket)
+// ============================================================================
+
+class TcpStream {
+    fd: i64;
+
+    deinit {
+        if this.fd >= 0 {
+            net_close(this.fd);
+            this.fd = 0 - 1;
+        }
+    }
+}
+
+// Connect to a remote IPv4 host and port.
+// Returns a TcpStream object on success, or nil if connection failed.
+fn tcp_connect(ip: string, port: i64) -> TcpStream {
+    let sock = net_socket(2, 1, 6);
+    if sock < 0 {
+        return nil;
+    }
+    let ip_u32 = net_ip_to_u32(ip);
+    let res = net_connect(sock, ip_u32, port);
+    if res < 0 {
+        net_close(sock);
+        return nil;
+    }
+    return new TcpStream { fd: sock };
+}
+
+// Send a raw byte string over the TCP stream.
+// Returns the number of bytes sent, or negative on error.
+fn tcp_send(stream: TcpStream, text: string) -> i64 {
+    if stream == nil || stream.fd < 0 {
+        return 0 - 1;
+    }
+    let len = str_len(text);
+    if len == 0 {
+        return 0;
+    }
+    return net_send(stream.fd, text, len);
+}
+
+// Receive incoming data from the TCP stream as a string.
+// Allocates a buffer of `max_len + 1` bytes and returns the received string.
+// Returns an empty string on EOF (connection closed by peer) or error.
+fn tcp_recv(stream: TcpStream, max_len: i64) -> string {
+    if stream == nil || stream.fd < 0 || max_len <= 0 {
+        return "";
+    }
+    let buf: raw i8 = alloc_mem(max_len + 1);
+    let bytes_read = net_recv(stream.fd, buf, max_len);
+    if bytes_read <= 0 {
+        free_mem(buf);
+        return "";
+    }
+    buf[bytes_read] = 0;
+    return buf;
+}
+
+// Explicitly close a TCP stream before deallocation.
+fn tcp_close(stream: TcpStream) {
+    if stream != nil && stream.fd >= 0 {
+        net_close(stream.fd);
+        stream.fd = 0 - 1;
+    }
+}
+
+// ============================================================================
+// High-Level TCP Listener (Server Socket)
+// ============================================================================
+
+class TcpListener {
+    fd: i64;
+
+    deinit {
+        if this.fd >= 0 {
+            net_close(this.fd);
+            this.fd = 0 - 1;
+        }
+    }
+}
+
+// Bind to an IPv4 host and port and listen for incoming connections.
+// If `ip` is "" or "0.0.0.0", binds to all interfaces (INADDR_ANY).
+// Returns a TcpListener object on success, or nil on failure.
+fn tcp_listen(ip: string, port: i64) -> TcpListener {
+    let sock = net_socket(2, 1, 6);
+    if sock < 0 {
+        return nil;
+    }
+    let ip_u32 = net_ip_to_u32(ip);
+    let b_res = net_bind(sock, ip_u32, port);
+    if b_res < 0 {
+        net_close(sock);
+        return nil;
+    }
+    let l_res = net_listen(sock, 128);
+    if l_res < 0 {
+        net_close(sock);
+        return nil;
+    }
+    return new TcpListener { fd: sock };
+}
+
+// Accept the next incoming connection.
+// Returns a new TcpStream for communication with the client, or nil on error.
+fn tcp_accept(listener: TcpListener) -> TcpStream {
+    if listener == nil || listener.fd < 0 {
+        return nil;
+    }
+    let client_sock = net_accept(listener.fd);
+    if client_sock < 0 {
+        return nil;
+    }
+    return new TcpStream { fd: client_sock };
+}
+
+// Explicitly close a TCP listener.
+fn tcp_listener_close(listener: TcpListener) {
+    if listener != nil && listener.fd >= 0 {
+        net_close(listener.fd);
+        listener.fd = 0 - 1;
+    }
+}

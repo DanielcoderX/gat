@@ -192,7 +192,15 @@ fn tc_is_builtin(name: string) -> bool {
        str_eq(name, "mutex_unlock_raw") || str_eq(name, "mutex_destroy_raw") ||
        str_eq(name, "__gat_thread_spawn") || str_eq(name, "__gat_thread_join") ||
        str_eq(name, "__gat_mutex_init") || str_eq(name, "__gat_mutex_lock") ||
-       str_eq(name, "__gat_mutex_unlock") || str_eq(name, "__gat_mutex_destroy") {
+       str_eq(name, "__gat_mutex_unlock") || str_eq(name, "__gat_mutex_destroy") ||
+       str_eq(name, "net_socket") || str_eq(name, "net_connect") ||
+       str_eq(name, "net_bind") || str_eq(name, "net_listen") ||
+       str_eq(name, "net_accept") || str_eq(name, "net_send") ||
+       str_eq(name, "net_recv") || str_eq(name, "net_close") ||
+       str_eq(name, "__gat_net_socket") || str_eq(name, "__gat_net_connect") ||
+       str_eq(name, "__gat_net_bind") || str_eq(name, "__gat_net_listen") ||
+       str_eq(name, "__gat_net_accept") || str_eq(name, "__gat_net_send") ||
+       str_eq(name, "__gat_net_recv") || str_eq(name, "__gat_net_close") {
         return true;
     }
     return false;

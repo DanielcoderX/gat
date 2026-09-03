@@ -45,7 +45,8 @@ $testCases = @(
     @{ Name = "Weak References & Cycle Collection"; File = "examples/test_weak_ref.gat"; Args = @(); Expect = "All weak reference and cycle tests passed successfully!"; ExpectedCode = 0 },
     @{ Name = "Concurrency, Threads & Mutex"; File = "examples/test_threads.gat"; Args = @(); Expect = "All thread and synchronization tests passed successfully!"; ExpectedCode = 0 },
     @{ Name = "Namespaced Modules & Imports"; File = "examples/test_modules.gat"; Args = @(); Expect = "Namespaced module imports and symbol resolution passed!"; ExpectedCode = 0 },
-    @{ Name = "Package Manager & Dependency Fetcher"; File = "examples/test_pkg_fetch.gat"; Args = @(); Expect = "Gat package manager and dependency fetching tests passed!"; ExpectedCode = 0 }
+    @{ Name = "Package Manager & Dependency Fetcher"; File = "examples/test_pkg_fetch.gat"; Args = @(); Expect = "Gat package manager and dependency fetching tests passed!"; ExpectedCode = 0 },
+    @{ Name = "Standard Library Sockets & Networking"; File = "examples/test_net.gat"; Args = @(); Expect = "All Socket & Networking tests completed successfully!"; ExpectedCode = 0 }
 )
 
 $passed = 0
@@ -142,7 +143,8 @@ Write-Host "`n[6/6] Running Linux/ELF64 Native Direct Syscall Suite..." -Foregro
 
 $linuxTests = @(
     @{ Name = "Linux Direct Syscall Suite"; File = "examples/test_linux_suite.gat"; Bin = "bin/test_linux_suite"; Expect = "ALL LINUX ELF64 TESTS PASSED SUCCESSFULLY" },
-    @{ Name = "Linux Print & Interpolation"; File = "examples/test_linux_print.gat"; Bin = "bin/test_linux_print"; Expect = "ALL LINUX PRINT TESTS PASSED" }
+    @{ Name = "Linux Print & Interpolation"; File = "examples/test_linux_print.gat"; Bin = "bin/test_linux_print"; Expect = "ALL LINUX PRINT TESTS PASSED" },
+    @{ Name = "Linux TCP Sockets & Networking"; File = "examples/test_net.gat"; Bin = "bin/test_net_linux"; Expect = "All Socket & Networking tests completed successfully!" }
 )
 
 $wslAvailable = $false

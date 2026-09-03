@@ -1,0 +1,119 @@
+// ============================================================================
+// examples/test_net.gat - Sockets & Networking Integration Test
+// ============================================================================
+
+import "std/net.gat";
+import "std/thread.gat";
+import "std/sync.gat";
+import "std/process.gat";
+
+struct ServerArgs {
+    port: i64;
+    ready_flag: raw i64;
+}
+
+fn server_worker(args_ptr: raw ServerArgs) {
+    let port = args_ptr.port;
+    print("Server thread starting on port: ", port, "\n");
+    let listener = tcp_listen("127.0.0.1", port);
+    if listener == nil {
+        print("[FAIL] Server failed to listen on port: ", port, "\n");
+        args_ptr.ready_flag[0] = 0 - 1;
+        return;
+    }
+    print("Server listening, signaling main...\n");
+    args_ptr.ready_flag[0] = 1;
+
+    print("Server calling accept...\n");
+    let client = tcp_accept(listener);
+    if client == nil {
+        print("[FAIL] Server failed to accept connection\n");
+        return;
+    }
+    print("Server accepted connection!\n");
+
+    let msg = tcp_recv(client, 128);
+    print("Server received: '", msg, "'\n");
+    if str_eq(msg, "ping") {
+        tcp_send(client, "pong");
+        print("Server sent 'pong'\n");
+    } else {
+        print("[FAIL] Server received unexpected message: '", msg, "'\n");
+    }
+
+    tcp_close(client);
+    tcp_listener_close(listener);
+    print("Server finished cleanly.\n");
+}
+
+fn main() -> i64 {
+    print("=== Gat Socket & Networking Test ===\n");
+
+    // 1. Test raw socket allocation & close
+    let s = net_socket(net_af_inet(), net_sock_stream(), net_ipproto_tcp());
+    if s < 0 {
+        print("[FAIL] net_socket creation failed: ", s, "\n");
+        return 1;
+    }
+    print("[PASS] 1. Low-level socket creation: fd = ", s, "\n");
+    let c = net_close(s);
+    if c != 0 {
+        print("[FAIL] net_close failed: ", c, "\n");
+        return 1;
+    }
+    print("[PASS] 2. Low-level socket close\n");
+
+    // 2. Test full loopback TCP communication with thread
+    let test_port: i64 = 18456;
+    let ready_buf: raw i64 = alloc_mem(8);
+    ready_buf[0] = 0;
+
+    let sargs = new ServerArgs {
+        port: test_port,
+        ready_flag: ready_buf
+    };
+
+    print("Spawning server thread...\n");
+    let s_thread = thread_spawn(server_worker, raw sargs);
+
+    // Wait for server to bind and listen
+    print("Waiting for server ready flag...\n");
+    while ready_buf[0] == 0 {
+        proc_sleep(5);
+    }
+    if ready_buf[0] < 0 {
+        print("[FAIL] Server failed to initialize\n");
+        return 1;
+    }
+    print("Server ready! Connecting client...\n");
+
+    // Client connects
+    let client_stream = tcp_connect("127.0.0.1", test_port);
+    if client_stream == nil {
+        print("[FAIL] Client failed to connect to port ", test_port, "\n");
+        return 1;
+    }
+    print("[PASS] 3. Client connected to 127.0.0.1:", test_port, "\n");
+
+    let sent = tcp_send(client_stream, "ping");
+    if sent != 4 {
+        print("[FAIL] Failed to send 4 bytes: sent = ", sent, "\n");
+        return 1;
+    }
+    print("[PASS] 4. Client sent 'ping' (", sent, " bytes)\n");
+
+    let reply = tcp_recv(client_stream, 64);
+    if !str_eq(reply, "pong") {
+        print("[FAIL] Expected 'pong', got: '", reply, "'\n");
+        return 1;
+    }
+    print("[PASS] 5. Client received echo reply: '", reply, "'\n");
+
+    tcp_close(client_stream);
+    thread_join(s_thread);
+
+    free_mem(ready_buf);
+
+    print("[PASS] All Socket & Networking tests completed successfully!\n");
+    return 0;
+}

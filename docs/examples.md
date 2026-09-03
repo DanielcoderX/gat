@@ -238,3 +238,36 @@ fn main() -> i64 {
     return 0;
 }
 ```
+
+---
+
+## 10. TCP Sockets & Echo Server
+**File:** [`examples/showcase/10_tcp_echo.gat`](https://github.com/DanielcoderX/gat/blob/main/examples/showcase/10_tcp_echo.gat)
+
+Demonstrates Gat's standard networking library (`std/net.gat`): listening on loopback, accepting connections, client streaming, and RAII socket lifecycle management:
+
+```rust
+import "std/net.gat";
+import "std/thread.gat";
+
+fn client_worker(task: raw ClientTask) {
+    let stream = tcp_connect("127.0.0.1", 19000);
+    tcp_send(stream, "Hello from Gat TCP Client!");
+    let reply = tcp_recv(stream, 256);
+    print("Echo reply: '{reply}'\n");
+    tcp_close(stream);
+}
+
+fn main() -> i64 {
+    let listener = tcp_listen("127.0.0.1", 19000);
+    let thread = thread_spawn(client_worker, raw task);
+    let client = tcp_accept(listener);
+    let msg = tcp_recv(client, 256);
+    tcp_send(client, msg); // echo back
+    thread_join(thread);
+    tcp_close(client);
+    tcp_listener_close(listener);
+    return 0;
+}
+```
+

@@ -31,10 +31,12 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
         sc = sc.next;
     }
     bb_align_up(rdata, 8);
+    let rdata_net_state_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_net_state
 
     // IAT
     let iat_start = rdata.size;
-    let num_imports: i64 = 23;
+    let num_imports: i64 = 25;
     let i: i64 = 0;
     while i <= num_imports {
         bb_write_u64(rdata, 0);
@@ -60,7 +62,7 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
 
     // Hint/Name Table
     let hn_offsets = bb_new(128);
-    let imp_names = "ExitProcess,GetStdHandle,WriteFile,GetProcessHeap,HeapAlloc,HeapFree,CreateFileA,ReadFile,CloseHandle,GetFileSizeEx,GetCommandLineA,DeleteFileA,GetCurrentProcessId,CreateProcessA,WaitForSingleObject,GetExitCodeProcess,GetTempPathA,Sleep,CreateThread,InitializeCriticalSection,EnterCriticalSection,LeaveCriticalSection,DeleteCriticalSection,";
+    let imp_names = "ExitProcess,GetStdHandle,WriteFile,GetProcessHeap,HeapAlloc,HeapFree,CreateFileA,ReadFile,CloseHandle,GetFileSizeEx,GetCommandLineA,DeleteFileA,GetCurrentProcessId,CreateProcessA,WaitForSingleObject,GetExitCodeProcess,GetTempPathA,Sleep,CreateThread,InitializeCriticalSection,EnterCriticalSection,LeaveCriticalSection,DeleteCriticalSection,LoadLibraryA,GetProcAddress,";
     let imp_start = 0;
     i = 0;
     while i < str_len(imp_names) {
@@ -147,6 +149,8 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
                 target_rva = rdata_rva + rdata_str_false_off;
             } else if str_eq(rel.sym, "str_empty_const") {
                 target_rva = rdata_rva + rdata_str_empty_off;
+            } else if str_eq(rel.sym, "_gat_net_state") {
+                target_rva = rdata_rva + rdata_net_state_off;
             } else {
                 let sym_cur = cg.syms_head;
                 let found: i64 = 0;
@@ -203,6 +207,8 @@ fn pe_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool
             else if str_eq(rel.sym, "__iat_EnterCriticalSection") { imp_idx = 20; }
             else if str_eq(rel.sym, "__iat_LeaveCriticalSection") { imp_idx = 21; }
             else if str_eq(rel.sym, "__iat_DeleteCriticalSection") { imp_idx = 22; }
+            else if str_eq(rel.sym, "__iat_LoadLibraryA") { imp_idx = 23; }
+            else if str_eq(rel.sym, "__iat_GetProcAddress") { imp_idx = 24; }
             let iat_slot_rva = rdata_rva + iat_start + imp_idx * 8;
             let from_rva = text_rva + rel.offset + 4;
             let diff = iat_slot_rva - from_rva;

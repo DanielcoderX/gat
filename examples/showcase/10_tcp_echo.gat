@@ -1,0 +1,95 @@
+// ============================================================================
+// 10_tcp_echo.gat - TCP Sockets & Networking in Gat
+// ============================================================================
+//
+// This example demonstrates Gat's standard networking library (`std/net.gat`):
+// - Direct OS socket primitives (kernel syscalls on Linux, Winsock on Windows)
+// - Server creation with `tcp_listen` and `tcp_accept`
+// - Client connection with `tcp_connect`
+// - Bidirectional communication with `tcp_send` and `tcp_recv`
+// - RAII socket cleanup via automatic destructor deinit
+//
+// Run this example:
+//   gat run examples/showcase/10_tcp_echo.gat
+
+import "std/net.gat";
+import "std/thread.gat";
+import "std/process.gat";
+
+struct ClientTask {
+    port: i64;
+}
+
+// Client thread worker: connects to the echo server, sends a message, and reads reply
+fn client_worker(task_ptr: raw ClientTask) {
+    let port = task_ptr.port;
+
+    // Small pause to allow server listener to initialize
+    proc_sleep(50);
+
+    print("[Client] Connecting to 127.0.0.1:", port, "...\n");
+    let stream = tcp_connect("127.0.0.1", port);
+    if stream == nil {
+        print("[Client Error] Connection failed!\n");
+        return;
+    }
+    print("[Client] Connected successfully!\n");
+
+    let message = "Hello from Gat TCP Client!";
+    print("[Client] Sending: '", message, "'\n");
+    tcp_send(stream, message);
+
+    // Read the echoed message back from server
+    let reply = tcp_recv(stream, 256);
+    print("[Client] Received echo: '", reply, "'\n");
+
+    // Sockets close automatically when stream leaves scope via RAII,
+    // or can be closed explicitly:
+    tcp_close(stream);
+    print("[Client] Connection closed.\n");
+}
+
+fn main() -> i64 {
+    print("=== Gat Networking Showcase: TCP Echo Server ===\n\n");
+
+    let port: i64 = 19000;
+
+    // Start listening on 127.0.0.1 (loopback interface)
+    let listener = tcp_listen("127.0.0.1", port);
+    if listener == nil {
+        print("[Server Error] Failed to bind/listen on port ", port, "\n");
+        return 1;
+    }
+    print("[Server] Listening on http://127.0.0.1:", port, "\n");
+
+    // Spawn client in a separate OS thread
+    let task = new ClientTask { port: port };
+    let client_thread = thread_spawn(client_worker, raw task);
+
+    // Accept incoming connection
+    print("[Server] Waiting for incoming client connection...\n");
+    let client_conn = tcp_accept(listener);
+    if client_conn == nil {
+        print("[Server Error] Failed to accept connection\n");
+        return 1;
+    }
+    print("[Server] Inbound client connection accepted!\n");
+
+    // Receive message
+    let data = tcp_recv(client_conn, 256);
+    print("[Server] Received from client: '", data, "'\n");
+
+    // Echo back the exact same data
+    print("[Server] Echoing back data to client...\n");
+    tcp_send(client_conn, data);
+
+    // Wait for client thread to complete
+    thread_join(client_thread);
+
+    // Clean up server sockets
+    tcp_close(client_conn);
+    tcp_listener_close(listener);
+
+    print("\n[Server] TCP Echo exchange complete! All sockets cleanly closed.\n");
+    return 0;
+}

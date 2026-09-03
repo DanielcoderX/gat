@@ -938,6 +938,231 @@ fn cg_emit_runtime_windows(cg: CodeGen) {
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x30);
     cg_call_iat(cg, "DeleteCriticalSection");
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // Networking Runtime (Windows)
+    cg_emit_net_windows(cg);
+}
+
+fn cg_win_write_str(cg: CodeGen, str_val: string, stack_off: i64) {
+    let len = str_len(str_val);
+    let i: i64 = 0;
+    while i < len {
+        let ch = str_char(str_val, i);
+        let off: i64 = stack_off + i;
+        bb_write_u8(cg.code, 0xC6); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, off); bb_write_u8(cg.code, ch);
+        i = i + 1;
+    }
+    let off_null: i64 = stack_off + len;
+    bb_write_u8(cg.code, 0xC6); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, off_null); bb_write_u8(cg.code, 0);
+}
+
+fn cg_win_resolve_proc(cg: CodeGen, proc_name: string, table_offset: i64) {
+    cg_win_write_str(cg, proc_name, 0xD0);
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE1); // mov rcx, r12 (h_ws2)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xD0); // lea rdx, [rbp-48]
+    cg_call_iat(cg, "GetProcAddress");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x43); bb_write_u8(cg.code, table_offset); // mov [rbx+offset], rax
+}
+
+fn cg_emit_net_windows(cg: CodeGen) {
+    // 0. __gat_net_init() -> rax (table)
+    cg_define_sym(cg, "__gat_net_init");
+    // Check if _gat_net_state != 0
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x05);
+    cg_reloc(cg, "_gat_net_state", 1);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x85); bb_write_u8(cg.code, 0xC0); // test rax, rax
+    bb_write_u8(cg.code, 0x74); bb_write_u8(cg.code, 0x01); // jz +1
+    bb_write_u8(cg.code, 0xC3);                             // ret (if already initialized!)
+
+    // Full initialization
+    bb_write_u8(cg.code, 0x55);                                     // push rbp
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5); // mov rbp, rsp
+    bb_write_u8(cg.code, 0x53);                                     // push rbx
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0x54);         // push r12
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x81); bb_write_u8(cg.code, 0xEC); bb_write_u32(cg.code, 480); // sub rsp, 480
+
+    // alloc_mem(128)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0xC1); bb_write_u32(cg.code, 128); // mov rcx, 128
+    cg_call_sym(cg, "__gat_alloc_mem");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xC3); // mov rbx, rax
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x05); // mov [_gat_net_state], rax
+    cg_reloc(cg, "_gat_net_state", 1);
+
+    // LoadLibraryA("ws2_32.dll")
+    cg_win_write_str(cg, "ws2_32.dll", 0xD0);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xD0); // lea rcx, [rbp-48]
+    cg_call_iat(cg, "LoadLibraryA");
+    bb_write_u8(cg.code, 0x49); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xC4); // mov r12, rax (h_ws2)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x03); // mov [rbx], rax (table[0])
+
+    cg_win_resolve_proc(cg, "WSAStartup", 8);
+    cg_win_resolve_proc(cg, "socket", 16);
+    cg_win_resolve_proc(cg, "connect", 24);
+    cg_win_resolve_proc(cg, "bind", 32);
+    cg_win_resolve_proc(cg, "listen", 40);
+    cg_win_resolve_proc(cg, "accept", 48);
+    cg_win_resolve_proc(cg, "send", 56);
+    cg_win_resolve_proc(cg, "recv", 64);
+    cg_win_resolve_proc(cg, "closesocket", 72);
+
+    // Call WSAStartup(0x0202, [rbp-464])
+    bb_write_u8(cg.code, 0xB9); bb_write_u32(cg.code, 0x0202); // mov ecx, 0x0202
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x95);
+    bb_write_u32(cg.code, 0 - 464); // lea rdx, [rbp-464]
+    bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0x53); bb_write_u8(cg.code, 8); // call [rbx+8] (WSAStartup)
+
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xD8); // mov rax, rbx
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x65); bb_write_u8(cg.code, 0xF0); // lea rsp, [rbp-16]
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0x5C); // pop r12
+    bb_write_u8(cg.code, 0x5B);                             // pop rbx
+    bb_write_u8(cg.code, 0x5D);                             // pop rbp
+    bb_write_u8(cg.code, 0xC3);                             // ret
+
+    // 1. __gat_net_socket(rcx: family, rdx: type, r8: proto) -> rax
+    cg_define_sym(cg, "__gat_net_socket");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x40);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8); // [rbp-8] = rcx
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0); // [rbp-16] = rdx
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8); // [rbp-24] = r8
+    cg_call_sym(cg, "__gat_net_init");
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x50); bb_write_u8(cg.code, 16); // r10 = table[16] (socket)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8); // rcx = family
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0); // rdx = type
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8); // r8 = proto
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xD2); // call r10
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 2. __gat_net_close(rcx: fd) -> rax
+    cg_define_sym(cg, "__gat_net_close");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x30);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    cg_call_sym(cg, "__gat_net_init");
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x50); bb_write_u8(cg.code, 72); // r10 = table[72] (closesocket)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xD2);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 3. __gat_net_listen(rcx: fd, rdx: backlog) -> rax
+    cg_define_sym(cg, "__gat_net_listen");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x30);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0);
+    cg_call_sym(cg, "__gat_net_init");
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x50); bb_write_u8(cg.code, 40); // table[40] (listen)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0);
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xD2);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 4. __gat_net_accept(rcx: fd) -> rax
+    cg_define_sym(cg, "__gat_net_accept");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x30);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    cg_call_sym(cg, "__gat_net_init");
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x50); bb_write_u8(cg.code, 48); // table[48] (accept)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xD2); // rdx = 0
+    bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0); // r8 = 0
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xD2);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 5. __gat_net_send(rcx: fd, rdx: data, r8: len) -> rax
+    cg_define_sym(cg, "__gat_net_send");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x40);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0);
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8);
+    cg_call_sym(cg, "__gat_net_init");
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x50); bb_write_u8(cg.code, 56); // table[56] (send)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0);
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8);
+    bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC9); // r9 = 0
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xD2);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 6. __gat_net_recv(rcx: fd, rdx: buf, r8: max_len) -> rax
+    cg_define_sym(cg, "__gat_net_recv");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x40);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0);
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8);
+    cg_call_sym(cg, "__gat_net_init");
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x50); bb_write_u8(cg.code, 64); // table[64] (recv)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0);
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8);
+    bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC9); // r9 = 0
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xD2);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 7. __gat_net_connect(rcx: fd, rdx: ip_u32, r8: port) -> rax
+    cg_define_sym(cg, "__gat_net_connect");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x40);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8); // [rbp-8] = fd
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0); // [rbp-16] = ip_u32
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8); // [rbp-24] = port
+    cg_call_sym(cg, "__gat_net_init");
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x50); bb_write_u8(cg.code, 24); // r10 = table[24] (connect)
+
+    // Build sockaddr_in at [rbp-48] (16 bytes)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xD8); bb_write_u32(cg.code, 0); // [rbp-40] = 0
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xD0); bb_write_u8(cg.code, 2); bb_write_u8(cg.code, 0); // family = 2
+    // port
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8);
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0xC1); bb_write_u8(cg.code, 0xC0); bb_write_u8(cg.code, 0x08); // rol ax, 8
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xD2);
+    // ip_u32
+    bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xF0); // mov eax, [rbp-16]
+    bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xD4); // mov [rbp-44], eax
+
+    // Call connect(rcx: fd, rdx: &sockaddr_in, r8: 16)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8); // rcx = fd
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xD0); // rdx = [rbp-48]
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0xC0); bb_write_u32(cg.code, 16); // r8 = 16
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xD2); // call r10
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 8. __gat_net_bind(rcx: fd, rdx: ip_u32, r8: port) -> rax
+    cg_define_sym(cg, "__gat_net_bind");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x40);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF0);
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8);
+    cg_call_sym(cg, "__gat_net_init");
+    bb_write_u8(cg.code, 0x4C); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x50); bb_write_u8(cg.code, 32); // r10 = table[32] (bind)
+
+    // Build sockaddr_in at [rbp-48]
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xD8); bb_write_u32(cg.code, 0);
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xD0); bb_write_u8(cg.code, 2); bb_write_u8(cg.code, 0);
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xE8);
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0xC1); bb_write_u8(cg.code, 0xC0); bb_write_u8(cg.code, 0x08);
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xD2);
+    bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xF0);
+    bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xD4);
+
+    // Call bind(rcx: fd, rdx: &sockaddr_in, r8: 16)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8B); bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0xF8);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xD0);
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0xC0); bb_write_u32(cg.code, 16);
+    bb_write_u8(cg.code, 0x41); bb_write_u8(cg.code, 0xFF); bb_write_u8(cg.code, 0xD2);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
 }
 
 fn cg_emit_runtime_linux(cg: CodeGen) {
@@ -1639,6 +1864,99 @@ fn cg_emit_runtime_linux(cg: CodeGen) {
     bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x05); // lea rax, [rip + str_empty_const]
     cg_reloc(cg, "str_empty_const", 1);
     bb_write_u8(cg.code, 0xC3);                                     // ret
+
+    // Networking Runtime (Linux)
+    cg_emit_net_linux(cg);
+}
+
+fn cg_emit_net_linux(cg: CodeGen) {
+    // 1. __gat_net_socket(rdi: family, rsi: type, rdx: proto) -> rax
+    cg_define_sym(cg, "__gat_net_socket");
+    bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 41); // mov eax, 41 (sys_socket)
+    bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05); // syscall
+    bb_write_u8(cg.code, 0xC3);                             // ret
+
+    // 2. __gat_net_close(rdi: fd) -> rax
+    cg_define_sym(cg, "__gat_net_close");
+    bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 3);  // mov eax, 3 (sys_close)
+    bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05); // syscall
+    bb_write_u8(cg.code, 0xC3);                             // ret
+
+    // 3. __gat_net_listen(rdi: fd, rsi: backlog) -> rax
+    cg_define_sym(cg, "__gat_net_listen");
+    bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 50); // mov eax, 50 (sys_listen)
+    bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05); // syscall
+    bb_write_u8(cg.code, 0xC3);                             // ret
+
+    // 4. __gat_net_accept(rdi: fd) -> rax
+    cg_define_sym(cg, "__gat_net_accept");
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xF6); // xor rsi, rsi
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xD2); // xor rdx, rdx
+    bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 43); // mov eax, 43 (sys_accept)
+    bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05); // syscall
+    bb_write_u8(cg.code, 0xC3);                             // ret
+
+    // 5. __gat_net_send(rdi: fd, rsi: data, rdx: len) -> rax
+    cg_define_sym(cg, "__gat_net_send");
+    bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xD2); // xor r10, r10 (flags = 0)
+    bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0); // xor r8, r8
+    bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC9); // xor r9, r9
+    bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 44); // mov eax, 44 (sys_sendto)
+    bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05); // syscall
+    bb_write_u8(cg.code, 0xC3);                             // ret
+
+    // 6. __gat_net_recv(rdi: fd, rsi: buf, rdx: max_len) -> rax
+    cg_define_sym(cg, "__gat_net_recv");
+    bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xD2); // xor r10, r10 (flags = 0)
+    bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC0); // xor r8, r8
+    bb_write_u8(cg.code, 0x4D); bb_write_u8(cg.code, 0x31); bb_write_u8(cg.code, 0xC9); // xor r9, r9
+    bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 45); // mov eax, 45 (sys_recvfrom)
+    bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05); // syscall
+    bb_write_u8(cg.code, 0xC3);                             // ret
+
+    // 7. __gat_net_connect(rdi: fd, rsi: ip_u32, rdx: port) -> rax
+    cg_define_sym(cg, "__gat_net_connect");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x20); // sub rsp, 32
+
+    // Build sockaddr_in at [rbp-16]
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xF8); bb_write_u32(cg.code, 0); // [rbp-8] = 0
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xF0); bb_write_u8(cg.code, 2); bb_write_u8(cg.code, 0); // family = 2
+    // port in rdx: rol dx, 8
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0xC1); bb_write_u8(cg.code, 0xC2); bb_write_u8(cg.code, 0x08);
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF2);
+    // ip_u32 in rsi
+    bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0xF4); // mov [rbp-12], esi
+
+    // sys_connect(rdi: fd, rsi: &sockaddr_in, rdx: 16)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0xF0); // lea rsi, [rbp-16]
+    bb_write_u8(cg.code, 0xBA); bb_write_u32(cg.code, 16); // rdx = 16
+    bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 42); // mov eax, 42 (sys_connect)
+    bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05); // syscall
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
+
+    // 8. __gat_net_bind(rdi: fd, rsi: ip_u32, rdx: port) -> rax
+    cg_define_sym(cg, "__gat_net_bind");
+    bb_write_u8(cg.code, 0x55);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xE5);
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x83); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x20); // sub rsp, 32
+
+    // Build sockaddr_in at [rbp-16]
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xF8); bb_write_u32(cg.code, 0); // [rbp-8] = 0
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0xC7); bb_write_u8(cg.code, 0x45); bb_write_u8(cg.code, 0xF0); bb_write_u8(cg.code, 2); bb_write_u8(cg.code, 0); // family = 2
+    // port in rdx: rol dx, 8
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0xC1); bb_write_u8(cg.code, 0xC2); bb_write_u8(cg.code, 0x08);
+    bb_write_u8(cg.code, 0x66); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x55); bb_write_u8(cg.code, 0xF2);
+    // ip_u32 in rsi
+    bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0xF4); // mov [rbp-12], esi
+
+    // sys_bind(rdi: fd, rsi: &sockaddr_in, rdx: 16)
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x8D); bb_write_u8(cg.code, 0x75); bb_write_u8(cg.code, 0xF0); // lea rsi, [rbp-16]
+    bb_write_u8(cg.code, 0xBA); bb_write_u32(cg.code, 16); // rdx = 16
+    bb_write_u8(cg.code, 0xB8); bb_write_u32(cg.code, 49); // mov eax, 49 (sys_bind)
+    bb_write_u8(cg.code, 0x0F); bb_write_u8(cg.code, 0x05); // syscall
+    bb_write_u8(cg.code, 0x48); bb_write_u8(cg.code, 0x89); bb_write_u8(cg.code, 0xEC); bb_write_u8(cg.code, 0x5D); bb_write_u8(cg.code, 0xC3);
 }
 
 fn cg_emit_runtime(cg: CodeGen) {
@@ -2070,6 +2388,14 @@ fn cg_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             else if str_eq(callee, "mutex_lock_raw") { callee = "__gat_mutex_lock"; }
             else if str_eq(callee, "mutex_unlock_raw") { callee = "__gat_mutex_unlock"; }
             else if str_eq(callee, "mutex_destroy_raw") { callee = "__gat_mutex_destroy"; }
+            else if str_eq(callee, "net_socket") { callee = "__gat_net_socket"; }
+            else if str_eq(callee, "net_connect") { callee = "__gat_net_connect"; }
+            else if str_eq(callee, "net_bind") { callee = "__gat_net_bind"; }
+            else if str_eq(callee, "net_listen") { callee = "__gat_net_listen"; }
+            else if str_eq(callee, "net_accept") { callee = "__gat_net_accept"; }
+            else if str_eq(callee, "net_send") { callee = "__gat_net_send"; }
+            else if str_eq(callee, "net_recv") { callee = "__gat_net_recv"; }
+            else if str_eq(callee, "net_close") { callee = "__gat_net_close"; }
             cg_call_sym(cg, callee);
             if inst.dest != 0 {
                 cg_mov_local_reg(cg, inst.dest, 0, ra_res);

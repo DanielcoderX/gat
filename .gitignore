@@ -1,5 +1,6 @@
 # Ignore intermediate test binaries, keep seed compiler
 bin/gatc-*
+bin/gat-*
 bin/test_*
 bin/main.exe
 *.tmp

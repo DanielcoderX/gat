@@ -29,9 +29,9 @@
 ## Try `gat` in 60 Seconds
 
 ### 1. Download Pre-Built Binaries
-Download the latest v0.1.0 release for your platform from [GitHub Releases](https://github.com/DanielcoderX/gat/releases/latest):
-- **Windows x86-64**: `gat-v0.1.0-windows-x64.zip` (extract and add `bin/` to PATH)
-- **Linux x86-64**: `gat-v0.1.0-linux-x64.tar.gz` (`tar -xzf gat-v0.1.0-linux-x64.tar.gz`)
+Download the latest v0.2.0 release for your platform from [GitHub Releases](https://github.com/DanielcoderX/gat/releases/latest):
+- **Windows x86-64**: `gat-v0.2.0-windows-x64.zip` (extract and add `bin/` to PATH)
+- **Linux x86-64**: `gat-v0.2.0-linux-x64.tar.gz` (`tar -xzf gat-v0.2.0-linux-x64.tar.gz`)
 
 ### 2. Run Hello World
 ```powershell
@@ -69,6 +69,7 @@ Explore our beginner-friendly tutorial gallery in [`examples/showcase/`](example
 | 07 | [`07_modules.gat`](examples/showcase/07_modules.gat) | Namespaced modules (`import ... as alias;`), modular architecture |
 | 08 | [`08_word_count_cli.gat`](examples/showcase/08_word_count_cli.gat) | Command line arguments (`get_cmd_arg`), file I/O, text parsing |
 | 09 | [`09_cross_platform.gat`](examples/showcase/09_cross_platform.gat) | Cross-platform APIs, Windows PE and Linux ELF64 parity |
+| 10 | [`10_tcp_echo.gat`](examples/showcase/10_tcp_echo.gat) | Sockets & networking (`std/net.gat`), TCP server/client, RAII socket deinit |
 
 > *Note: Every example above is verified against the compiler on both Windows and Linux.*
 
@@ -80,7 +81,7 @@ Explore our beginner-friendly tutorial gallery in [`examples/showcase/`](example
 
 - **Windows x86-64 (PE32+)**:
   - Emits PE headers, `.text`, `.rdata`, `.data`, and `.pdata` sections.
-  - Generates Import Address Table (IAT) binding only to `KERNEL32.dll`.
+  - Generates Import Address Table (IAT) binding only to `KERNEL32.dll` (dynamically loads `ws2_32.dll` on demand for networking).
   - Zero dependencies on `msvcrt.dll` or the Visual C++ runtime.
 
 - **Linux x86-64 (ELF64)**:
@@ -88,6 +89,7 @@ Explore our beginner-friendly tutorial gallery in [`examples/showcase/`](example
   - Runtime operations map directly to Linux kernel syscalls via `syscall` instruction:
     - Heap: `sys_mmap` (9) and `sys_munmap` (11)
     - File & Console I/O: `sys_read` (0), `sys_write` (1), `sys_open` (2), `sys_close` (3), `sys_stat` (4)
+    - Sockets & Networking: `sys_socket` (41), `sys_connect` (42), `sys_bind` (49), `sys_listen` (50), `sys_accept` (43), `sys_sendto` (44), `sys_recvfrom` (45)
     - Concurrency: `sys_clone` (56) with native atomic CAS mutexes
     - Lifecycle: `sys_exit_group` (231), `sys_getpid` (39), `sys_nanosleep` (35)
   - Zero shared library dependencies (`ldd` reports "not a dynamic executable").

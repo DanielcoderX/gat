@@ -38,6 +38,7 @@ Unlike languages that require `glibc`, `musl`, or dynamic linkers, Gat's Linux b
 - File and console I/O (`sys_read`, `sys_write`, `sys_open`, `sys_close`, `sys_stat`)
 - Multithreading (`sys_clone`) and process lifecycle (`sys_exit_group`, `sys_getpid`, `sys_nanosleep`)
 - Futex-backed or atomic CAS synchronization primitives
+- Sockets & TCP Networking (`sys_socket`, `sys_connect`, `sys_bind`, `sys_listen`, `sys_accept`, `sys_sendto`, `sys_recvfrom`)
 
 A binary compiled with `gat build app.gat -o app --target=linux` runs on **any 64-bit Linux kernel** with zero shared library dependencies.
 
@@ -50,6 +51,7 @@ Gat is 100% written in Gat (`src/compiler.gat`). Every build is validated via a 
 ### 4. Zero-Friction Native Toolchain
 - **Built-in Package Manager**: `gat init`, `gat add`, `gat install` with lockfile verification (`gat.mod` & `gat.lock`).
 - **Language Server Protocol (LSP)**: Complete editor support with diagnostics, hover inspection, go-to-definition, and autocomplete.
+- **Cross-Platform Networking**: `std/net.gat` for TCP client/server streaming, high-level listeners, and automatic RAII socket lifecycles.
 - **Modern Optimizing Pipeline**: AST type inference, generic monomorphization, dead-code elimination (DCE), SSA-inspired IR, constant folding, and linear-scan register allocation.
 
 ---
@@ -58,8 +60,8 @@ Gat is 100% written in Gat (`src/compiler.gat`). Every build is validated via a 
 
 ### Download Pre-Built Binaries
 Grab the latest release archive from [GitHub Releases](https://github.com/DanielcoderX/gat/releases/latest):
-- **Windows**: `gat-v0.1.0-windows-x64.zip`
-- **Linux**: `gat-v0.1.0-linux-x64.tar.gz`
+- **Windows**: `gat-v0.2.0-windows-x64.zip`
+- **Linux**: `gat-v0.2.0-linux-x64.tar.gz`
 
 ### Run Your First Program
 ```powershell
