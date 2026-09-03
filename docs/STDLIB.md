@@ -1,3 +1,11 @@
+---
+layout: default
+title: Standard Library
+nav_order: 5
+description: "Reference documentation for the Gat Standard Library modules."
+permalink: /STDLIB.html
+---
+
 # Gat Standard Library Reference (`std/`)
 
 Comprehensive documentation of all built-in modules in the Gat Standard Library.

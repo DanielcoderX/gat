@@ -1,0 +1,47 @@
+// ============================================================================
+// examples/showcase/06_enum_match.gat
+// Concept: Enums, State Machines & Pattern Matching
+// ============================================================================
+//
+// Gat supports strongly-typed `enum` definitions and exhaustive `match` expressions.
+// Notice variants are referenced via dot notation (e.g. `ConnectionState.Connected`).
+
+enum ConnectionState {
+    Disconnected,
+    Connecting,
+    Connected,
+    TimedOut
+}
+
+fn describe_state(state: ConnectionState) -> string {
+    match state {
+        ConnectionState.Disconnected => {
+            return "Offline / Idle";
+        }
+        ConnectionState.Connecting => {
+            return "Handshake in progress...";
+        }
+        ConnectionState.Connected => {
+            return "Online & Synchronized";
+        }
+        ConnectionState.TimedOut => {
+            return "Error: Connection Timed Out";
+        }
+    }
+}
+
+fn main() -> i64 {
+    print("=== Network Connection State Machine ===\n\n");
+
+    let s1 = ConnectionState.Disconnected;
+    let s2 = ConnectionState.Connecting;
+    let s3 = ConnectionState.Connected;
+    let s4 = ConnectionState.TimedOut;
+
+    print("State 1: ", describe_state(s1), "\n");
+    print("State 2: ", describe_state(s2), "\n");
+    print("State 3: ", describe_state(s3), "\n");
+    print("State 4: ", describe_state(s4), "\n");
+
+    return 0;
+}

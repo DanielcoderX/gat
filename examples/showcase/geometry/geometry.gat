@@ -1,0 +1,17 @@
+// ============================================================================
+// examples/showcase/geometry/geometry.gat
+// Sub-module for showcase/07_modules.gat
+// ============================================================================
+
+struct Rectangle {
+    width: i64;
+    height: i64;
+}
+
+fn area(r: Rectangle) -> i64 {
+    return r.width * r.height;
+}
+
+fn perimeter(r: Rectangle) -> i64 {
+    return (r.width + r.height) * 2;
+}

@@ -1,3 +1,11 @@
+---
+layout: default
+title: Language Specification
+nav_order: 4
+description: "Comprehensive language specification for the Gat programming language."
+permalink: /LANGUAGE_SPEC.html
+---
+
 # Gat Language Specification
 
 **Version:** 0.4.0  

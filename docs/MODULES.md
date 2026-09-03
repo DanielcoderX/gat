@@ -1,3 +1,11 @@
+---
+layout: default
+title: Module System
+nav_order: 6
+description: "Specification of the Gat module system, imports, and package manager."
+permalink: /MODULES.html
+---
+
 # Gat Modules & Package Manager Specification
 
 ## 1. Import System & Namespaces

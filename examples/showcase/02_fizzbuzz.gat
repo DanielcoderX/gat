@@ -1,0 +1,27 @@
+// ============================================================================
+// examples/showcase/02_fizzbuzz.gat
+// Concept: Loops, Conditionals & String Interpolation
+// ============================================================================
+//
+// Demonstrates:
+// - `for i in start..end` range loops.
+// - `if / else if / else` branching.
+// - String interpolation using `{expression}` syntax inside strings.
+
+fn main() -> i64 {
+    print("=== FizzBuzz (1 to 20) ===\n");
+
+    for i in 1..21 {
+        if i % 15 == 0 {
+            print("FizzBuzz\n");
+        } else if i % 3 == 0 {
+            print("Fizz\n");
+        } else if i % 5 == 0 {
+            print("Buzz\n");
+        } else {
+            print("{i}\n");
+        }
+    }
+
+    return 0;
+}

@@ -1,0 +1,83 @@
+// ============================================================================
+// examples/showcase/08_word_count_cli.gat
+// Concept: Command-Line Args, File I/O & Text Processing
+// ============================================================================
+//
+// A practical mini CLI tool demonstrating:
+// - `get_cmd_arg(index)` for command-line arguments.
+// - `read_file(path)` and `write_file(path, data, len)`.
+// - String byte traversal with `str_char(s, index)` and line/word counting.
+
+import "std/str.gat";
+import "std/fs.gat";
+
+fn count_words(text: string) -> i64 {
+    let len = str_len(text);
+    if len == 0 { return 0; }
+
+    let count: i64 = 0;
+    let in_word: i64 = 0;
+
+    let i: i64 = 0;
+    while i < len {
+        let ch = str_char(text, i);
+        // ASCII space (32), newline (10), tab (9), carriage return (13)
+        if ch == 32 || ch == 10 || ch == 9 || ch == 13 {
+            in_word = 0;
+        } else {
+            if in_word == 0 {
+                count = count + 1;
+                in_word = 1;
+            }
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+fn count_lines(text: string) -> i64 {
+    let len = str_len(text);
+    if len == 0 { return 0; }
+
+    let lines: i64 = 0;
+    let i: i64 = 0;
+    while i < len {
+        let ch = str_char(text, i);
+        if ch == 10 { // newline '\n'
+            lines = lines + 1;
+        }
+        i = i + 1;
+    }
+    return lines;
+}
+
+fn main() -> i64 {
+    let target_file = get_cmd_arg(1);
+
+    // If no file argument is provided, create and analyze a sample text file
+    if str_len(target_file) == 0 {
+        let sample_path = "sample_showcase.txt";
+        let sample_content = "Gat is a self-hosted systems programming language.\nIt emits direct machine code for Windows and Linux.\nFast, safe, and zero-dependency.\n";
+        write_file(sample_path, sample_content, str_len(sample_content));
+        print("Note: No file argument provided. Generated demo 'sample_showcase.txt'.\n\n");
+        target_file = sample_path;
+    }
+
+    let content = read_file(target_file);
+    if str_len(content) == 0 {
+        print("[Error] Could not read file: {target_file}\n");
+        return 1;
+    }
+
+    let bytes = str_len(content);
+    let lines = count_lines(content);
+    let words = count_words(content);
+
+    print("=== Gat Word Count (wc) Mini Tool ===\n");
+    print("  File:  {target_file}\n");
+    print("  Lines: {lines}\n");
+    print("  Words: {words}\n");
+    print("  Bytes: {bytes}\n");
+
+    return 0;
+}

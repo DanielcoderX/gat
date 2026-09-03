@@ -1,0 +1,32 @@
+// ============================================================================
+// examples/showcase/09_cross_platform.gat
+// Concept: Dual Backend Execution (Windows PE & Linux ELF64)
+// ============================================================================
+//
+// Gat compiles to standalone native binaries on both platforms:
+// - Windows: Direct PE32+ executable calling kernel32 IAT.
+// - Linux:   Direct ELF64 executable issuing raw x86-64 Linux kernel syscalls.
+//
+// The standard library provides unified cross-platform APIs.
+
+import "std/process.gat";
+import "std/fs.gat";
+
+fn main() -> i64 {
+    print("=== Gat Cross-Platform Environment Inspection ===\n\n");
+
+    let pid = proc_get_pid();
+    let temp_dir = fs_temp_dir();
+
+    print("Process ID (PID):    {pid}\n");
+    print("System Temp Dir:     {temp_dir}\n");
+
+    print("Taking a short 50ms pause via OS sleep/nanosleep...\n");
+    proc_sleep(50);
+    print("Resumed successfully!\n\n");
+
+    print("Target status: This exact same source code compiles seamlessly\n");
+    print("for Windows (PE) with default build, or Linux (ELF) with --target=linux.\n");
+
+    return 0;
+}

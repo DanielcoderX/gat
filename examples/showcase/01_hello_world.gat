@@ -1,0 +1,15 @@
+// ============================================================================
+// examples/showcase/01_hello_world.gat
+// Concept: Program Entrypoint & Basic Printing
+// ============================================================================
+//
+// In Gat:
+// - `fn main() -> i64` is the entry point of every program.
+// - Return code `0` signals successful process termination.
+// - `print(...)` is a built-in variadic intrinsic that writes directly to stdout
+//   without requiring dynamic C runtimes or external dependencies.
+
+fn main() -> i64 {
+    print("Hello, world! Welcome to the Gat programming language.\n");
+    return 0;
+}

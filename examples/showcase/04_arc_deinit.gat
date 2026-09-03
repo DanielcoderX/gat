@@ -1,0 +1,41 @@
+// ============================================================================
+// examples/showcase/04_arc_deinit.gat
+// Concept: Deterministic ARC Lifecycle & RAII Destructors (`deinit`)
+// ============================================================================
+//
+// Gat uses Automatic Reference Counting (ARC).
+// When an object's strong reference count drops to zero, its `deinit` destructor
+// is invoked immediately and deterministically — no garbage collection pauses!
+
+class FileHandle {
+    fd: i64;
+    name: string;
+
+    deinit {
+        print("  -> [DEINIT] Closing FileHandle '{this.name}' (fd: {this.fd})...\n");
+    }
+}
+
+fn create_temporary_resource() {
+    print("  Entering temporary scope...\n");
+    let temp = new FileHandle { fd: 3, name: "temp_scratch.dat" };
+    print("  Resource '{temp.name}' allocated on heap.\n");
+    print("  Leaving temporary scope...\n");
+    // `temp` goes out of scope here. Strong count drops to 0 -> `deinit` triggers now!
+}
+
+fn main() -> i64 {
+    print("=== Deterministic ARC & Destructors ===\n\n");
+
+    print("1. Calling create_temporary_resource():\n");
+    create_temporary_resource();
+    print("1. Back in main(): temporary resource was already cleaned up!\n\n");
+
+    print("2. Managing long-lived resource in main:\n");
+    let log_file = new FileHandle { fd: 4, name: "application.log" };
+    print("  Log file active with fd: {log_file.fd}\n");
+    print("  End of main reached. Program exiting...\n");
+    // `log_file` strong count drops to 0 at function exit -> deinit runs!
+
+    return 0;
+}

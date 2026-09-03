@@ -1,0 +1,61 @@
+// ============================================================================
+// examples/showcase/03_struct_vs_class.gat
+// Concept: Dual Memory Model (Value Struct vs Reference Class)
+// ============================================================================
+//
+// Gat provides two primary aggregate types:
+//
+// 1. `struct` (Value Type):
+//    - Stack-allocated or embedded inline.
+//    - Copied by value on assignment/pass.
+//    - Zero heap allocation and zero refcounting overhead.
+//
+// 2. `class` (Reference Type):
+//    - Heap-allocated via `new ClassName { ... }`.
+//    - Shared across references via non-atomic Automatic Reference Counting (ARC).
+//    - Automatically freed as soon as strong reference count drops to zero.
+
+struct Point {
+    x: i64;
+    y: i64;
+}
+
+class UserAccount {
+    id: i64;
+    balance: i64;
+}
+
+fn modify_point(mut_p: Point) {
+    // modifying a passed struct does NOT affect caller because it's a copy
+    mut_p.x = 999;
+}
+
+fn modify_account(acc: UserAccount) {
+    // modifying a class modifies the shared heap instance
+    acc.balance = acc.balance + 500;
+}
+
+fn main() -> i64 {
+    print("=== Struct (Value) vs Class (Reference) ===\n\n");
+
+    // 1. Struct Demo
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = p1; // Value copy
+    p2.x = 50;
+
+    print("Struct Value Copy:\n");
+    print("  p1.x = {p1.x}, p1.y = {p1.y} (original unchanged)\n");
+    print("  p2.x = {p2.x}, p2.y = {p2.y} (copy modified)\n\n");
+
+    // 2. Class Demo
+    let acc1 = new UserAccount { id: 101, balance: 1000 };
+    let acc2 = acc1; // Reference alias (ARC count becomes 2)
+
+    modify_account(acc2);
+
+    print("Class Reference Sharing:\n");
+    print("  acc1 balance: {acc1.balance}\n");
+    print("  acc2 balance: {acc2.balance} (both point to same heap object)\n");
+
+    return 0;
+}

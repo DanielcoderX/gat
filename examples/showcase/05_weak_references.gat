@@ -1,0 +1,46 @@
+// ============================================================================
+// examples/showcase/05_weak_references.gat
+// Concept: Cycle Breaking with Weak References (`weak T`)
+// ============================================================================
+//
+// In reference-counted systems, strong reference cycles (A points to B, B points to A)
+// prevent memory from ever being freed.
+//
+// Gat solves this with first-class `weak T` non-owning references:
+// - `weak_from(strong_obj)` creates a non-owning weak pointer.
+// - `weak_upgrade(weak_ptr)` safely promotes it to a strong reference if still alive.
+// - `weak_release(weak_ptr)` cleans up the weak reference counter.
+
+import "std/weak.gat";
+
+class TreeNode {
+    id: i64;
+    parent: weak TreeNode; // Non-owning back-reference breaks memory cycles!
+
+    deinit {
+        print("  -> [DEINIT] TreeNode {this.id} freed.\n");
+    }
+}
+
+fn main() -> i64 {
+    print("=== Cycle-Safe Tree with Weak References ===\n\n");
+
+    let root = new TreeNode { id: 1, parent: nil };
+    print("Created Root Node (id: {root.id})\n");
+
+    // Create child and link to parent using weak reference
+    let child = new TreeNode { id: 2, parent: weak_from(root) };
+    print("Created Child Node (id: {child.id}) with weak parent link\n");
+
+    // Upgrade weak reference to strong to access parent safely
+    let upgraded_parent = weak_upgrade(child.parent);
+    if upgraded_parent != nil {
+        print("Successfully upgraded weak parent reference: parent id = {upgraded_parent.id}\n");
+    }
+
+    // Release weak reference slot
+    weak_release(child.parent);
+
+    print("\nExiting main. Both nodes will be reclaimed without leaking memory cycles:\n");
+    return 0;
+}

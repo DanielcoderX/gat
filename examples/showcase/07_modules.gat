@@ -1,0 +1,28 @@
+// ============================================================================
+// examples/showcase/07_modules.gat
+// Concept: Namespaced Modules & Imports (`import ... as alias`)
+// ============================================================================
+//
+// Gat provides clean, collision-free module imports:
+// - `import "path/to/module.gat" as alias;` creates a dedicated namespace.
+// - Call functions with `alias::fn_name()`.
+// - Instantiate structs/classes with `alias::TypeName { ... }`.
+
+import "examples/showcase/geometry/geometry.gat" as geo;
+import "std/math.gat";
+
+fn main() -> i64 {
+    print("=== Namespaced Module Imports ===\n\n");
+
+    let rect = geo::Rectangle { width: 12, height: 8 };
+
+    let a = geo::area(rect);
+    let p = geo::perimeter(rect);
+
+    print("Rectangle dimensions: {rect.width} x {rect.height}\n");
+    print("Calculated Area:      {a}\n");
+    print("Calculated Perimeter: {p}\n");
+    print("Math Max value:       {math_max(a, p)}\n");
+
+    return 0;
+}
