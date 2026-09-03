@@ -1,7 +1,9 @@
 title: "Gat Language"
 description: "A fast, self-hosted systems programming language targeting direct x86-64 machine code for Windows & Linux."
-theme: "just-the-docs"
 remote_theme: "just-the-docs/just-the-docs"
+
+plugins:
+  - jekyll-remote-theme
 
 url: "https://danielcoderx.github.io"
 baseurl: "/gat"
