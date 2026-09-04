@@ -63,6 +63,18 @@ fn vec_pop(v: Vector) -> i64 {
     return last;
 }
 
+fn vec_remove_at(v: Vector, index: i64) -> i64 {
+    if index < 0 || index >= v.size { return 0; }
+    let removed = v.data[index];
+    let i = index;
+    while i < v.size - 1 {
+        v.data[i] = v.data[i + 1];
+        i = i + 1;
+    }
+    v.size = v.size - 1;
+    return removed;
+}
+
 fn vec_len(v: Vector) -> i64 {
     return v.size;
 }

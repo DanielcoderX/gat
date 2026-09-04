@@ -15,13 +15,22 @@ struct ServerArgs {
 fn server_worker(args_ptr: raw ServerArgs) {
     let port = args_ptr.port;
     print("Server thread starting on port: ", port, "\n");
-    let listener = tcp_listen("127.0.0.1", port);
+    let tries: i64 = 0;
+    let listener: TcpListener = nil;
+    while tries < 10 && listener == nil {
+        listener = tcp_listen("127.0.0.1", port);
+        if listener == nil {
+            port = port + 1;
+            args_ptr.port = port;
+            tries = tries + 1;
+        }
+    }
     if listener == nil {
-        print("[FAIL] Server failed to listen on port: ", port, "\n");
+        print("[FAIL] Server failed to listen after retries\n");
         args_ptr.ready_flag[0] = 0 - 1;
         return;
     }
-    print("Server listening, signaling main...\n");
+    print("Server listening on port ", port, ", signaling main...\n");
     args_ptr.ready_flag[0] = 1;
 
     print("Server calling accept...\n");
@@ -88,12 +97,12 @@ fn main() -> i64 {
     print("Server ready! Connecting client...\n");
 
     // Client connects
-    let client_stream = tcp_connect("127.0.0.1", test_port);
+    let client_stream = tcp_connect("127.0.0.1", sargs.port);
     if client_stream == nil {
-        print("[FAIL] Client failed to connect to port ", test_port, "\n");
+        print("[FAIL] Client failed to connect to port ", sargs.port, "\n");
         return 1;
     }
-    print("[PASS] 3. Client connected to 127.0.0.1:", test_port, "\n");
+    print("[PASS] 3. Client connected to 127.0.0.1:", sargs.port, "\n");
 
     let sent = tcp_send(client_stream, "ping");
     if sent != 4 {

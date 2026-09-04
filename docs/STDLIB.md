@@ -21,6 +21,7 @@ Comprehensive documentation of all built-in modules in the Gat Standard Library.
 6. [`std/math.gat` - Mathematical Functions](#6-stdmathgat---mathematical-functions)
 7. [`std/process.gat` - Process & OS Utilities](#7-stdprocessgat---process--os-utilities)
 8. [`std/net.gat` - Sockets & TCP Networking](#8-stdnetgat---sockets--tcp-networking)
+9. [`std/json.gat` - JSON Parser, Serializer & Data Types](#9-stdjsongat---json-parser-serializer--data-types)
 
 ---
 
@@ -280,4 +281,180 @@ Explicitly closes server listener socket.
 * `net_ipproto_udp() -> i64` - Returns UDP protocol constant (`IPPROTO_UDP = 17`).
 * `net_socket(domain: i64, kind: i64, proto: i64) -> i64` - Allocates OS socket.
 * `net_close(fd: i64) -> i64` - Closes OS socket.
+
+---
+
+## 9. `std/json.gat` - JSON Parser, Serializer & Data Types
+
+Import: `import "std/json.gat";`
+
+RFC 8259 compliant JSON parser, serializer, and data model. Provides dynamic DOM manipulation, compact and indented pretty-printing, and streaming struct/class serialization.
+
+```gat
+enum JsonValue {
+    Null,
+    Bool(bool),
+    Number(i64),
+    String(string),
+    Array(Vector<JsonValue>),
+    Object(JsonObject)
+}
+```
+
+### Value Constructors
+
+* `json_null() -> JsonValue` - Returns JSON `null`.
+* `json_bool(b: bool) -> JsonValue` - Returns JSON boolean (`true` or `false`).
+* `json_number(n: i64) -> JsonValue` - Returns JSON integer/number.
+* `json_string(s: string) -> JsonValue` - Returns JSON string.
+* `json_array() -> JsonValue` - Returns a new empty JSON array.
+* `json_object() -> JsonValue` - Returns a new empty JSON key-value object.
+
+### Type Query & Extraction
+
+* `json_is_null(v: JsonValue) -> bool`
+* `json_is_bool(v: JsonValue) -> bool`
+* `json_is_number(v: JsonValue) -> bool`
+* `json_is_string(v: JsonValue) -> bool`
+* `json_is_array(v: JsonValue) -> bool`
+* `json_is_object(v: JsonValue) -> bool`
+* `json_as_bool(v: JsonValue) -> bool`
+* `json_as_int(v: JsonValue) -> i64`
+* `json_as_string(v: JsonValue) -> string`
+* `json_as_array(v: JsonValue) -> Vector<JsonValue>`
+* `json_as_object(v: JsonValue) -> JsonObject`
+
+### Array Operations
+
+* `json_arr_len(v: JsonValue) -> i64` - Returns number of elements in array.
+* `json_arr_get(v: JsonValue, idx: i64) -> JsonValue` - Gets element at index or `nil`.
+* `json_arr_set(v: JsonValue, idx: i64, item: JsonValue)` - Updates element at index.
+* `json_arr_set_str(v: JsonValue, idx: i64, s: string)` - Sets string at index.
+* `json_arr_set_int(v: JsonValue, idx: i64, n: i64)` - Sets integer at index.
+* `json_arr_set_bool(v: JsonValue, idx: i64, b: bool)` - Sets boolean at index.
+* `json_arr_push(v: JsonValue, item: JsonValue)` - Appends value.
+* `json_arr_push_str(v: JsonValue, s: string)` - Appends string.
+* `json_arr_push_int(v: JsonValue, n: i64)` - Appends number.
+* `json_arr_push_bool(v: JsonValue, b: bool)` - Appends boolean.
+* `json_arr_remove_at(v: JsonValue, idx: i64) -> JsonValue` - Removes and returns element at index.
+
+### Object Operations
+
+* `json_set(v: JsonValue, key: string, val: JsonValue)` - Sets key-value pair.
+* `json_set_str(v: JsonValue, key: string, s: string)` - Sets string field.
+* `json_set_int(v: JsonValue, key: string, n: i64)` - Sets integer field.
+* `json_set_bool(v: JsonValue, key: string, b: bool)` - Sets boolean field.
+* `json_set_null(v: JsonValue, key: string)` - Sets field to `null`.
+* `json_remove(v: JsonValue, key: string) -> bool` - Removes field from object.
+* `json_get(v: JsonValue, key: string) -> JsonValue` - Retrieves field or `nil`.
+* `json_get_str(v: JsonValue, key: string, default_val: string) -> string`
+* `json_get_int(v: JsonValue, key: string, default_val: i64) -> i64`
+* `json_get_bool(v: JsonValue, key: string, default_val: bool) -> bool`
+* `json_get_arr(v: JsonValue, key: string) -> Vector`
+* `json_get_obj(v: JsonValue, key: string) -> JsonObject`
+* `json_has(v: JsonValue, key: string) -> bool` - Checks if key exists.
+
+### Hierarchical Path Navigation & Editing
+
+Easily read and modify deeply nested structures using dot notation (e.g., `"server.database.port"` or `"items.0.name"`):
+
+* `json_get_path(v: JsonValue, path: string) -> JsonValue`
+* `json_get_path_str(v: JsonValue, path: string, default_val: string) -> string`
+* `json_get_path_int(v: JsonValue, path: string, default_val: i64) -> i64`
+* `json_get_path_bool(v: JsonValue, path: string, default_val: bool) -> bool`
+* `json_set_path(root: JsonValue, path: string, val: JsonValue) -> bool`
+* `json_set_path_str(root: JsonValue, path: string, s: string) -> bool`
+* `json_set_path_int(root: JsonValue, path: string, n: i64) -> bool`
+* `json_set_path_bool(root: JsonValue, path: string, b: bool) -> bool`
+
+### File I/O & In-Place File Editing
+
+Load, inspect, modify, and persist JSON documents directly on disk:
+
+#### `json_read_file(path: string) -> Result<JsonValue, string>`
+Reads a JSON file from disk and parses it. Returns `Result.Ok(val)` on success or `Result.Err(msg)` on file I/O or syntax error.
+
+#### `json_write_file(path: string, v: JsonValue) -> Result<bool, string>`
+Writes a `JsonValue` tree to a file in compact format.
+
+#### `json_write_file_pretty(path: string, v: JsonValue, indent_size: i64) -> Result<bool, string>`
+Writes a formatted, indented JSON file with a trailing newline.
+
+#### Example: Read, Edit, and Save a Config File
+
+```gat
+import "std/json.gat";
+import "std/result.gat";
+
+fn update_server_config(config_path: string) -> bool {
+    // 1. Read JSON file from disk
+    let res = json_read_file(config_path);
+    if result_is_err(res) {
+        print("Failed to read config: ", result_unwrap_err(res), "\n");
+        return false;
+    }
+    let config = result_unwrap(res);
+
+    // 2. Modify values using direct mutators or dot paths
+    json_set_int(config, "port", 8080);
+    json_set_path_str(config, "database.host", "db.internal");
+    json_set_path_int(config, "database.pool_size", 32);
+
+    // 3. Save modified JSON back to disk
+    let save_res = json_write_file_pretty(config_path, config, 2);
+    if result_is_err(save_res) {
+        print("Failed to save config: ", result_unwrap_err(save_res), "\n");
+        return false;
+    }
+
+    return true;
+}
+```
+
+### Parsing & Serialization
+
+#### `json_parse(input: string) -> Result<JsonValue, string>`
+Parses a JSON string into an owning `JsonValue` tree. Returns `Result.Ok(val)` on success, or `Result.Err(msg)` with exact line and column diagnostics on syntax errors.
+
+#### `json_stringify(v: JsonValue) -> string`
+Serializes a `JsonValue` tree into a compact JSON string without extra whitespace.
+
+#### `json_stringify_pretty(v: JsonValue, indent_size: i64) -> string`
+Serializes a `JsonValue` tree into formatted, indented, human-readable JSON.
+
+### Streaming Struct Serializer (`JsonSerializer`)
+
+For high-performance serialization of custom structs and classes:
+
+```gat
+struct JsonSerializer { ... }
+
+fn user_to_json(u: User) -> string {
+    let ser = json_ser_new();
+    json_ser_begin_object(ser);
+    json_ser_kv_int(ser, "id", u.id);
+    json_ser_kv_string(ser, "name", u.name);
+    json_ser_kv_bool(ser, "active", u.active);
+    json_ser_end_object(ser);
+    return json_ser_finish(ser);
+}
+```
+
+* `json_ser_new() -> JsonSerializer`
+* `json_ser_begin_object(ser: JsonSerializer)`
+* `json_ser_end_object(ser: JsonSerializer)`
+* `json_ser_begin_array(ser: JsonSerializer)`
+* `json_ser_end_array(ser: JsonSerializer)`
+* `json_ser_key(ser: JsonSerializer, key: string)`
+* `json_ser_string(ser: JsonSerializer, val: string)`
+* `json_ser_int(ser: JsonSerializer, val: i64)`
+* `json_ser_bool(ser: JsonSerializer, val: bool)`
+* `json_ser_null(ser: JsonSerializer)`
+* `json_ser_kv_string(ser: JsonSerializer, key: string, val: string)`
+* `json_ser_kv_int(ser: JsonSerializer, key: string, val: i64)`
+* `json_ser_kv_bool(ser: JsonSerializer, key: string, val: bool)`
+* `json_ser_kv_null(ser: JsonSerializer, key: string)`
+* `json_ser_finish(ser: JsonSerializer) -> string`
+
+
 

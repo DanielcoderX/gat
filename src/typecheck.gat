@@ -347,9 +347,15 @@ fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
         let head_sym: Symbol = nil;
         let tail_sym: Symbol = nil;
         while v != nil {
+            let ptype = decl.str_val;
+            if v.left != nil {
+                if str_len(v.left.type_name) > 0 {
+                    ptype = v.left.type_name;
+                }
+            }
             let v_sym = new Symbol {
                 name: v.str_val,
-                type_name: decl.str_val,
+                type_name: ptype,
                 type_kind: TYPE_INT,
                 is_ref: 0,
                 size: 8,
@@ -621,11 +627,24 @@ fn tc_check_stmt(tc: TypeChecker, stmt: ASTNode, locals: Symbol, fn_name: string
         while arm != nil {
             let arm_locals = locals;
             let b_var = arm.left;
+            let arm_ti = tc_find_type(tc, arm.type_name);
+            let b_type = "i64";
+            let b_kind = TYPE_INT;
+            if arm_ti != nil {
+                let ft = tc_get_field_type(arm_ti, arm.str_val);
+                if str_len(ft) > 0 {
+                    let target_ti = tc_find_type(tc, ft);
+                    if target_ti != nil {
+                        b_type = ft;
+                        b_kind = target_ti.kind;
+                    }
+                }
+            }
             while b_var != nil {
                 let sym = new Symbol {
                     name: b_var.str_val,
-                    type_name: "i64",
-                    type_kind: TYPE_INT,
+                    type_name: b_type,
+                    type_kind: b_kind,
                     is_ref: 0,
                     size: 8,
                     offset: 0,

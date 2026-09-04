@@ -130,6 +130,35 @@ fn str_index_of(s: string, ch: i64) -> i64 {
     return 0 - 1;
 }
 
+fn str_find(s: string, sub: string) -> i64 {
+    let slen = str_len(s);
+    let sublen = str_len(sub);
+    if sublen == 0 { return 0; }
+    if sublen > slen { return 0 - 1; }
+    let limit = slen - sublen;
+    let i: i64 = 0;
+    while i <= limit {
+        let j: i64 = 0;
+        let match_found: bool = true;
+        while j < sublen && match_found {
+            if str_char(s, i + j) != str_char(sub, j) {
+                match_found = false;
+            } else {
+                j = j + 1;
+            }
+        }
+        if match_found {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fn str_contains(s: string, sub: string) -> bool {
+    return str_find(s, sub) >= 0;
+}
+
 import "std/result.gat";
 
 fn str_parse_int(s: string) -> Result<i64, string> {

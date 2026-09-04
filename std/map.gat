@@ -101,3 +101,23 @@ fn map_has(m: Map, key: string) -> bool {
 fn map_len(m: Map) -> i64 {
     return m.size;
 }
+
+fn map_remove(m: Map, key: string) -> bool {
+    let idx = map_hash(key, m.bucket_count);
+    let cur: MapEntry = m.buckets[idx];
+    let prev: MapEntry = nil;
+    while cur != nil {
+        if str_eq(cur.key, key) {
+            if prev == nil {
+                m.buckets[idx] = cur.next;
+            } else {
+                prev.next = cur.next;
+            }
+            m.size = m.size - 1;
+            return true;
+        }
+        prev = cur;
+        cur = cur.next;
+    }
+    return false;
+}

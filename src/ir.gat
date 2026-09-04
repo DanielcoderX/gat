@@ -748,11 +748,18 @@ fn ir_build_stmt(ctx: IRContext, stmt: ASTNode) {
                 // Bindings
                 let b_var = arm.left;
                 let b_idx: i64 = 0;
+                let b_type = "i64";
+                if ti != nil {
+                    let ft = tc_get_field_type(ti, arm.str_val);
+                    if str_len(ft) > 0 {
+                        b_type = ft;
+                    }
+                }
                 while b_var != nil {
                     let b_val = ir_alloc_val(ctx);
                     let ld = ir_emit(ctx, IR_OP_LOAD, b_val, target_val);
                     ld.offset = 8 + b_idx * 8;
-                    ir_set_local(ctx, b_var.str_val, b_val, 0, "i64");
+                    ir_set_local(ctx, b_var.str_val, b_val, 0, b_type);
                     b_idx = b_idx + 1;
                     b_var = b_var.next;
                 }

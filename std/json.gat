@@ -1,0 +1,1367 @@
+// ============================================================================
+// std/json.gat - Native JSON Parser, Serializer & Object Mapper
+// ============================================================================
+
+import "std/str.gat";
+import "std/vec.gat";
+import "std/map.gat";
+import "std/result.gat";
+import "std/fs.gat";
+
+// ----------------------------------------------------------------------------
+// JSON Data Model
+// ----------------------------------------------------------------------------
+
+class JsonObject {
+    map: Map;       // key -> JsonValue
+    keys: Vector;   // list of key strings preserving insertion order
+}
+
+fn json_object_new() -> JsonObject {
+    return new JsonObject {
+        map: map_new(16),
+        keys: vec_new(8)
+    };
+}
+
+fn json_obj_set(obj: JsonObject, key: string, val: i64) {
+    if !map_has(obj.map, key) {
+        vec_push(obj.keys, key);
+    }
+    map_put(obj.map, key, val);
+}
+
+fn json_obj_remove(obj: JsonObject, key: string) -> bool {
+    if !map_has(obj.map, key) {
+        return false;
+    }
+    map_remove(obj.map, key);
+    let i: i64 = 0;
+    let found: bool = false;
+    while i < obj.keys.size && !found {
+        let k: string = vec_get(obj.keys, i);
+        if str_eq(k, key) {
+            vec_remove_at(obj.keys, i);
+            found = true;
+        } else {
+            i = i + 1;
+        }
+    }
+    return true;
+}
+
+fn json_obj_get(obj: JsonObject, key: string) -> i64 {
+    return map_get(obj.map, key, 0);
+}
+
+fn json_obj_has(obj: JsonObject, key: string) -> bool {
+    return map_has(obj.map, key);
+}
+
+fn json_obj_len(obj: JsonObject) -> i64 {
+    return obj.keys.size;
+}
+
+fn json_obj_key_at(obj: JsonObject, idx: i64) -> string {
+    let k: string = vec_get(obj.keys, idx);
+    return k;
+}
+
+enum JsonValue {
+    Null,
+    Bool(bool),
+    Number(i64),
+    String(string),
+    Array(Vector),
+    Object(JsonObject)
+}
+
+// ----------------------------------------------------------------------------
+// Value Constructors & Helpers
+// ----------------------------------------------------------------------------
+
+fn json_null() -> JsonValue {
+    return JsonValue.Null;
+}
+
+fn json_bool(b: bool) -> JsonValue {
+    return JsonValue.Bool(b);
+}
+
+fn json_number(n: i64) -> JsonValue {
+    return JsonValue.Number(n);
+}
+
+fn json_string(s: string) -> JsonValue {
+    return JsonValue.String(s);
+}
+
+fn json_array() -> JsonValue {
+    return JsonValue.Array(vec_new(8));
+}
+
+fn json_object() -> JsonValue {
+    return JsonValue.Object(json_object_new());
+}
+
+fn json_is_null(v: JsonValue) -> bool {
+    if v == nil { return true; }
+    match v {
+        JsonValue.Null => { return true; },
+        _ => { return false; }
+    }
+}
+
+fn json_is_bool(v: JsonValue) -> bool {
+    if v == nil { return false; }
+    match v {
+        JsonValue.Bool(b) => { return true; },
+        _ => { return false; }
+    }
+}
+
+fn json_is_number(v: JsonValue) -> bool {
+    if v == nil { return false; }
+    match v {
+        JsonValue.Number(n) => { return true; },
+        _ => { return false; }
+    }
+}
+
+fn json_is_string(v: JsonValue) -> bool {
+    if v == nil { return false; }
+    match v {
+        JsonValue.String(s) => { return true; },
+        _ => { return false; }
+    }
+}
+
+fn json_is_array(v: JsonValue) -> bool {
+    if v == nil { return false; }
+    match v {
+        JsonValue.Array(a) => { return true; },
+        _ => { return false; }
+    }
+}
+
+fn json_is_object(v: JsonValue) -> bool {
+    if v == nil { return false; }
+    match v {
+        JsonValue.Object(o) => { return true; },
+        _ => { return false; }
+    }
+}
+
+fn json_as_bool(v: JsonValue) -> bool {
+    if v == nil { return false; }
+    match v {
+        JsonValue.Bool(b) => { return b; },
+        _ => { return false; }
+    }
+}
+
+fn json_as_int(v: JsonValue) -> i64 {
+    if v == nil { return 0; }
+    match v {
+        JsonValue.Number(n) => { return n; },
+        _ => { return 0; }
+    }
+}
+
+fn json_as_string(v: JsonValue) -> string {
+    if v == nil { return ""; }
+    match v {
+        JsonValue.String(s) => { return s; },
+        _ => { return ""; }
+    }
+}
+
+fn json_as_array(v: JsonValue) -> Vector {
+    if v == nil { return nil; }
+    match v {
+        JsonValue.Array(a) => { return a; },
+        _ => { return nil; }
+    }
+}
+
+fn json_as_object(v: JsonValue) -> JsonObject {
+    if v == nil { return nil; }
+    match v {
+        JsonValue.Object(o) => { return o; },
+        _ => { return nil; }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// High-Level Accessors & Mutators
+// ----------------------------------------------------------------------------
+
+fn json_get(v: JsonValue, key: string) -> JsonValue {
+    let obj = json_as_object(v);
+    if obj == nil { return nil; }
+    let val: JsonValue = json_obj_get(obj, key);
+    return val;
+}
+
+fn json_has(v: JsonValue, key: string) -> bool {
+    let obj = json_as_object(v);
+    if obj == nil { return false; }
+    return json_obj_has(obj, key);
+}
+
+fn json_get_str(v: JsonValue, key: string, default_val: string) -> string {
+    let item = json_get(v, key);
+    if item == nil { return default_val; }
+    match item {
+        JsonValue.String(s) => { return s; },
+        _ => { return default_val; }
+    }
+}
+
+fn json_get_int(v: JsonValue, key: string, default_val: i64) -> i64 {
+    let item = json_get(v, key);
+    if item == nil { return default_val; }
+    match item {
+        JsonValue.Number(n) => { return n; },
+        _ => { return default_val; }
+    }
+}
+
+fn json_get_bool(v: JsonValue, key: string, default_val: bool) -> bool {
+    let item = json_get(v, key);
+    if item == nil { return default_val; }
+    match item {
+        JsonValue.Bool(b) => { return b; },
+        _ => { return default_val; }
+    }
+}
+
+fn json_get_arr(v: JsonValue, key: string) -> Vector {
+    let item = json_get(v, key);
+    if item == nil { return nil; }
+    match item {
+        JsonValue.Array(a) => { return a; },
+        _ => { return nil; }
+    }
+}
+
+fn json_get_obj(v: JsonValue, key: string) -> JsonObject {
+    let item = json_get(v, key);
+    if item == nil { return nil; }
+    match item {
+        JsonValue.Object(o) => { return o; },
+        _ => { return nil; }
+    }
+}
+
+fn json_set(v: JsonValue, key: string, val: JsonValue) {
+    let obj = json_as_object(v);
+    if obj != nil {
+        json_obj_set(obj, key, val);
+    }
+}
+
+fn json_set_str(v: JsonValue, key: string, s: string) {
+    json_set(v, key, json_string(s));
+}
+
+fn json_set_int(v: JsonValue, key: string, n: i64) {
+    json_set(v, key, json_number(n));
+}
+
+fn json_set_bool(v: JsonValue, key: string, b: bool) {
+    json_set(v, key, json_bool(b));
+}
+
+fn json_set_null(v: JsonValue, key: string) {
+    json_set(v, key, json_null());
+}
+
+fn json_arr_len(v: JsonValue) -> i64 {
+    let arr = json_as_array(v);
+    if arr == nil { return 0; }
+    return arr.size;
+}
+
+fn json_arr_get(v: JsonValue, idx: i64) -> JsonValue {
+    let arr = json_as_array(v);
+    if arr == nil { return nil; }
+    let it: JsonValue = vec_get(arr, idx);
+    return it;
+}
+
+fn json_arr_push(v: JsonValue, item: JsonValue) {
+    let arr = json_as_array(v);
+    if arr != nil {
+        vec_push(arr, item);
+    }
+}
+
+fn json_arr_push_str(v: JsonValue, s: string) {
+    json_arr_push(v, json_string(s));
+}
+
+fn json_arr_push_int(v: JsonValue, n: i64) {
+    json_arr_push(v, json_number(n));
+}
+
+fn json_arr_push_bool(v: JsonValue, b: bool) {
+    json_arr_push(v, json_bool(b));
+}
+
+fn json_arr_set(v: JsonValue, idx: i64, item: JsonValue) {
+    let arr = json_as_array(v);
+    if arr != nil {
+        vec_set(arr, idx, item);
+    }
+}
+
+fn json_arr_set_str(v: JsonValue, idx: i64, s: string) {
+    json_arr_set(v, idx, json_string(s));
+}
+
+fn json_arr_set_int(v: JsonValue, idx: i64, n: i64) {
+    json_arr_set(v, idx, json_number(n));
+}
+
+fn json_arr_set_bool(v: JsonValue, idx: i64, b: bool) {
+    json_arr_set(v, idx, json_bool(b));
+}
+
+fn json_arr_remove_at(v: JsonValue, idx: i64) -> JsonValue {
+    let arr = json_as_array(v);
+    if arr == nil { return nil; }
+    let val: JsonValue = vec_remove_at(arr, idx);
+    return val;
+}
+
+fn json_remove(v: JsonValue, key: string) -> bool {
+    let obj = json_as_object(v);
+    if obj == nil { return false; }
+    return json_obj_remove(obj, key);
+}
+
+// ----------------------------------------------------------------------------
+// Hierarchical Path Navigation & Editing (e.g. "server.port" or "users.0.name")
+// ----------------------------------------------------------------------------
+
+fn json_get_path(v: JsonValue, path: string) -> JsonValue {
+    if v == nil || path == nil { return nil; }
+    let len = str_len(path);
+    if len == 0 { return v; }
+
+    let cur: JsonValue = v;
+    let start: i64 = 0;
+    let i: i64 = 0;
+    let keep_going: bool = true;
+
+    while i <= len && keep_going {
+        let is_sep: bool = false;
+        if i == len {
+            is_sep = true;
+        } else if str_char(path, i) == 46 { // '.'
+            is_sep = true;
+        }
+
+        if is_sep {
+            let seg_len = i - start;
+            if seg_len > 0 {
+                let seg = str_sub(path, start, seg_len);
+                if json_is_object(cur) {
+                    cur = json_get(cur, seg);
+                } else if json_is_array(cur) {
+                    let r = str_parse_int(seg);
+                    if result_is_ok(r) {
+                        let idx = result_unwrap(r);
+                        cur = json_arr_get(cur, idx);
+                    } else {
+                        cur = nil;
+                    }
+                } else {
+                    cur = nil;
+                }
+
+                if cur == nil {
+                    keep_going = false;
+                }
+            }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    return cur;
+}
+
+fn json_set_path(root: JsonValue, path: string, val: JsonValue) -> bool {
+    if root == nil || path == nil { return false; }
+    let len = str_len(path);
+    if len == 0 { return false; }
+
+    // Find last dot
+    let last_dot: i64 = 0 - 1;
+    let i: i64 = len - 1;
+    let searching: bool = true;
+    while i >= 0 && searching {
+        if str_char(path, i) == 46 {
+            last_dot = i;
+            searching = false;
+        } else {
+            i = i - 1;
+        }
+    }
+
+    if last_dot < 0 {
+        if json_is_object(root) {
+            json_set(root, path, val);
+            return true;
+        }
+        if json_is_array(root) {
+            let r = str_parse_int(path);
+            if result_is_ok(r) {
+                json_arr_set(root, result_unwrap(r), val);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    let parent_path = str_sub(path, 0, last_dot);
+    let leaf_key = str_sub(path, last_dot + 1, len - last_dot - 1);
+    let parent = json_get_path(root, parent_path);
+    if parent == nil { return false; }
+
+    if json_is_object(parent) {
+        json_set(parent, leaf_key, val);
+        return true;
+    }
+    if json_is_array(parent) {
+        let r = str_parse_int(leaf_key);
+        if result_is_ok(r) {
+            json_arr_set(parent, result_unwrap(r), val);
+            return true;
+        }
+    }
+    return false;
+}
+
+fn json_get_path_str(v: JsonValue, path: string, default_val: string) -> string {
+    let item = json_get_path(v, path);
+    if item == nil { return default_val; }
+    match item {
+        JsonValue.String(s) => { return s; },
+        _ => { return default_val; }
+    }
+}
+
+fn json_get_path_int(v: JsonValue, path: string, default_val: i64) -> i64 {
+    let item = json_get_path(v, path);
+    if item == nil { return default_val; }
+    match item {
+        JsonValue.Number(n) => { return n; },
+        _ => { return default_val; }
+    }
+}
+
+fn json_get_path_bool(v: JsonValue, path: string, default_val: bool) -> bool {
+    let item = json_get_path(v, path);
+    if item == nil { return default_val; }
+    match item {
+        JsonValue.Bool(b) => { return b; },
+        _ => { return default_val; }
+    }
+}
+
+fn json_set_path_str(root: JsonValue, path: string, s: string) -> bool {
+    return json_set_path(root, path, json_string(s));
+}
+
+fn json_set_path_int(root: JsonValue, path: string, n: i64) -> bool {
+    return json_set_path(root, path, json_number(n));
+}
+
+fn json_set_path_bool(root: JsonValue, path: string, b: bool) -> bool {
+    return json_set_path(root, path, json_bool(b));
+}
+
+// ----------------------------------------------------------------------------
+// JSON Lexer
+// ----------------------------------------------------------------------------
+
+fn json_tok_eof() -> i64 { return 0; }
+fn json_tok_lbrace() -> i64 { return 1; }   // {
+fn json_tok_rbrace() -> i64 { return 2; }   // }
+fn json_tok_lbracket() -> i64 { return 3; } // [
+fn json_tok_rbracket() -> i64 { return 4; } // ]
+fn json_tok_colon() -> i64 { return 5; }    // :
+fn json_tok_comma() -> i64 { return 6; }    // ,
+fn json_tok_string() -> i64 { return 7; }
+fn json_tok_number() -> i64 { return 8; }
+fn json_tok_true() -> i64 { return 9; }
+fn json_tok_false() -> i64 { return 10; }
+fn json_tok_null() -> i64 { return 11; }
+fn json_tok_error() -> i64 { return 12; }
+
+class JsonToken {
+    kind: i64;
+    str_val: string;
+    int_val: i64;
+    line: i64;
+    col: i64;
+}
+
+class JsonLexer {
+    src: string;
+    pos: i64;
+    len: i64;
+    line: i64;
+    col: i64;
+    err_msg: string;
+}
+
+fn json_lex_new(input: string) -> JsonLexer {
+    return new JsonLexer {
+        src: input,
+        pos: 0,
+        len: str_len(input),
+        line: 1,
+        col: 1,
+        err_msg: ""
+    };
+}
+
+fn json_lex_peek_char(lex: JsonLexer) -> i64 {
+    if lex.pos >= lex.len { return 0; }
+    return str_char(lex.src, lex.pos);
+}
+
+fn json_lex_next_char(lex: JsonLexer) -> i64 {
+    if lex.pos >= lex.len { return 0; }
+    let ch = str_char(lex.src, lex.pos);
+    lex.pos = lex.pos + 1;
+    if ch == 10 { // \n
+        lex.line = lex.line + 1;
+        lex.col = 1;
+    } else {
+        lex.col = lex.col + 1;
+    }
+    return ch;
+}
+
+fn json_lex_skip_whitespace(lex: JsonLexer) {
+    while lex.pos < lex.len {
+        let ch = json_lex_peek_char(lex);
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+            json_lex_next_char(lex);
+        } else {
+            return;
+        }
+    }
+}
+
+fn json_hex_digit(ch: i64) -> i64 {
+    if ch >= 48 && ch <= 57 { return ch - 48; }
+    if ch >= 65 && ch <= 70 { return ch - 65 + 10; }
+    if ch >= 97 && ch <= 102 { return ch - 97 + 10; }
+    return 0 - 1;
+}
+
+fn json_lex_read_string(lex: JsonLexer, start_line: i64, start_col: i64) -> JsonToken {
+    // Opening quote already consumed
+    let sb = sb_new(32);
+    while lex.pos < lex.len {
+        let ch = json_lex_next_char(lex);
+        if ch == 34 { // closing quote '"'
+            return new JsonToken {
+                kind: json_tok_string(),
+                str_val: sb_to_string(sb),
+                int_val: 0,
+                line: start_line,
+                col: start_col
+            };
+        }
+        if ch == 92 { // escape '\'
+            if lex.pos >= lex.len {
+                return new JsonToken {
+                    kind: json_tok_error(),
+                    str_val: "unexpected EOF in escape sequence",
+                    int_val: 0,
+                    line: lex.line,
+                    col: lex.col
+                };
+            }
+            let esc = json_lex_next_char(lex);
+            if esc == 34 { sb_append_char(sb, 34); }      // \"
+            else if esc == 92 { sb_append_char(sb, 92); } // \\
+            else if esc == 47 { sb_append_char(sb, 47); } // \/
+            else if esc == 98 { sb_append_char(sb, 8); }  // \b
+            else if esc == 102 { sb_append_char(sb, 12); } // \f
+            else if esc == 110 { sb_append_char(sb, 10); } // \n
+            else if esc == 114 { sb_append_char(sb, 13); } // \r
+            else if esc == 116 { sb_append_char(sb, 9); }  // \t
+            else if esc == 117 { // \uXXXX
+                let h0 = json_hex_digit(json_lex_next_char(lex));
+                let h1 = json_hex_digit(json_lex_next_char(lex));
+                let h2 = json_hex_digit(json_lex_next_char(lex));
+                let h3 = json_hex_digit(json_lex_next_char(lex));
+                if h0 < 0 || h1 < 0 || h2 < 0 || h3 < 0 {
+                    return new JsonToken {
+                        kind: json_tok_error(),
+                        str_val: "invalid unicode escape sequence",
+                        int_val: 0,
+                        line: lex.line,
+                        col: lex.col
+                    };
+                }
+                let code_pt = (h0 * 4096) + (h1 * 256) + (h2 * 16) + h3;
+                if code_pt < 128 {
+                    sb_append_char(sb, code_pt);
+                } else if code_pt < 2048 {
+                    sb_append_char(sb, 192 + (code_pt / 64));
+                    sb_append_char(sb, 128 + (code_pt % 64));
+                } else {
+                    sb_append_char(sb, 224 + (code_pt / 4096));
+                    sb_append_char(sb, 128 + ((code_pt / 64) % 64));
+                    sb_append_char(sb, 128 + (code_pt % 64));
+                }
+            } else {
+                return new JsonToken {
+                    kind: json_tok_error(),
+                    str_val: "invalid escape character in string",
+                    int_val: 0,
+                    line: lex.line,
+                    col: lex.col
+                };
+            }
+        } else if ch == 10 || ch == 13 {
+            return new JsonToken {
+                kind: json_tok_error(),
+                str_val: "unescaped newline in string literal",
+                int_val: 0,
+                line: lex.line,
+                col: lex.col
+            };
+        } else {
+            sb_append_char(sb, ch);
+        }
+    }
+
+    return new JsonToken {
+        kind: json_tok_error(),
+        str_val: "unterminated string literal",
+        int_val: 0,
+        line: start_line,
+        col: start_col
+    };
+}
+
+fn json_lex_read_number(lex: JsonLexer, first_ch: i64, start_line: i64, start_col: i64) -> JsonToken {
+    let sign: i64 = 1;
+    let n: i64 = 0;
+    let ch = first_ch;
+    if ch == 45 { // '-'
+        sign = 0 - 1;
+        ch = json_lex_next_char(lex);
+        if ch < 48 || ch > 57 {
+            return new JsonToken {
+                kind: json_tok_error(),
+                str_val: "expected digits after negative sign",
+                int_val: 0,
+                line: start_line,
+                col: start_col
+            };
+        }
+    }
+
+    n = ch - 48;
+    let in_num: bool = true;
+    while lex.pos < lex.len && in_num {
+        let peek = json_lex_peek_char(lex);
+        if peek >= 48 && peek <= 57 {
+            json_lex_next_char(lex);
+            n = (n * 10) + (peek - 48);
+        } else if peek == 46 { // '.'
+            json_lex_next_char(lex);
+            let in_frac: bool = true;
+            while lex.pos < lex.len && in_frac {
+                let d = json_lex_peek_char(lex);
+                if d >= 48 && d <= 57 {
+                    json_lex_next_char(lex);
+                } else {
+                    in_frac = false;
+                }
+            }
+        } else if peek == 69 || peek == 101 { // 'E' or 'e'
+            json_lex_next_char(lex);
+            let sign_ch = json_lex_peek_char(lex);
+            if sign_ch == 43 || sign_ch == 45 {
+                json_lex_next_char(lex);
+            }
+            let in_exp: bool = true;
+            while lex.pos < lex.len && in_exp {
+                let d2 = json_lex_peek_char(lex);
+                if d2 >= 48 && d2 <= 57 {
+                    json_lex_next_char(lex);
+                } else {
+                    in_exp = false;
+                }
+            }
+            in_num = false;
+        } else {
+            in_num = false;
+        }
+    }
+
+    return new JsonToken {
+        kind: json_tok_number(),
+        str_val: "",
+        int_val: n * sign,
+        line: start_line,
+        col: start_col
+    };
+}
+
+fn json_lex_next_token(lex: JsonLexer) -> JsonToken {
+    json_lex_skip_whitespace(lex);
+    if lex.pos >= lex.len {
+        return new JsonToken {
+            kind: json_tok_eof(),
+            str_val: "",
+            int_val: 0,
+            line: lex.line,
+            col: lex.col
+        };
+    }
+
+    let start_line = lex.line;
+    let start_col = lex.col;
+    let ch = json_lex_next_char(lex);
+
+    if ch == 123 { // '{'
+        return new JsonToken { kind: json_tok_lbrace(), str_val: "{", int_val: 0, line: start_line, col: start_col };
+    }
+    if ch == 125 { // '}'
+        return new JsonToken { kind: json_tok_rbrace(), str_val: "}", int_val: 0, line: start_line, col: start_col };
+    }
+    if ch == 91 { // '['
+        return new JsonToken { kind: json_tok_lbracket(), str_val: "[", int_val: 0, line: start_line, col: start_col };
+    }
+    if ch == 93 { // ']'
+        return new JsonToken { kind: json_tok_rbracket(), str_val: "]", int_val: 0, line: start_line, col: start_col };
+    }
+    if ch == 58 { // ':'
+        return new JsonToken { kind: json_tok_colon(), str_val: ":", int_val: 0, line: start_line, col: start_col };
+    }
+    if ch == 44 { // ','
+        return new JsonToken { kind: json_tok_comma(), str_val: ",", int_val: 0, line: start_line, col: start_col };
+    }
+    if ch == 34 { // '"'
+        return json_lex_read_string(lex, start_line, start_col);
+    }
+    if (ch >= 48 && ch <= 57) || ch == 45 { // '0'..'9' or '-'
+        return json_lex_read_number(lex, ch, start_line, start_col);
+    }
+
+    // Identifiers: true, false, null
+    if ch == 116 { // 't'
+        if lex.pos + 3 <= lex.len {
+            if str_char(lex.src, lex.pos) == 114 &&
+               str_char(lex.src, lex.pos + 1) == 117 &&
+               str_char(lex.src, lex.pos + 2) == 101 {
+                lex.pos = lex.pos + 3;
+                lex.col = lex.col + 3;
+                return new JsonToken { kind: json_tok_true(), str_val: "true", int_val: 1, line: start_line, col: start_col };
+            }
+        }
+    }
+    if ch == 102 { // 'f'
+        if lex.pos + 4 <= lex.len {
+            if str_char(lex.src, lex.pos) == 97 &&
+               str_char(lex.src, lex.pos + 1) == 108 &&
+               str_char(lex.src, lex.pos + 2) == 115 &&
+               str_char(lex.src, lex.pos + 3) == 101 {
+                lex.pos = lex.pos + 4;
+                lex.col = lex.col + 4;
+                return new JsonToken { kind: json_tok_false(), str_val: "false", int_val: 0, line: start_line, col: start_col };
+            }
+        }
+    }
+    if ch == 110 { // 'n'
+        if lex.pos + 3 <= lex.len {
+            if str_char(lex.src, lex.pos) == 117 &&
+               str_char(lex.src, lex.pos + 1) == 108 &&
+               str_char(lex.src, lex.pos + 2) == 108 {
+                lex.pos = lex.pos + 3;
+                lex.col = lex.col + 3;
+                return new JsonToken { kind: json_tok_null(), str_val: "null", int_val: 0, line: start_line, col: start_col };
+            }
+        }
+    }
+
+    let err_sb = sb_new(32);
+    sb_append(err_sb, "unexpected character: '");
+    sb_append_char(err_sb, ch);
+    sb_append(err_sb, "'");
+    return new JsonToken {
+        kind: json_tok_error(),
+        str_val: sb_to_string(err_sb),
+        int_val: 0,
+        line: start_line,
+        col: start_col
+    };
+}
+
+// ----------------------------------------------------------------------------
+// JSON Parser
+// ----------------------------------------------------------------------------
+
+class JsonParser {
+    lex: JsonLexer;
+    cur_tok: JsonToken;
+    has_error: bool;
+    error_msg: string;
+}
+
+fn jp_next_token(p: JsonParser) {
+    p.cur_tok = json_lex_next_token(p.lex);
+    if p.cur_tok.kind == json_tok_error() {
+        p.has_error = true;
+        let sb = sb_new(64);
+        sb_append(sb, "Line ");
+        sb_append_int(sb, p.cur_tok.line);
+        sb_append(sb, ":");
+        sb_append_int(sb, p.cur_tok.col);
+        sb_append(sb, " - ");
+        sb_append(sb, p.cur_tok.str_val);
+        p.error_msg = sb_to_string(sb);
+    }
+}
+
+fn jp_set_error(p: JsonParser, msg: string) {
+    if !p.has_error {
+        p.has_error = true;
+        let sb = sb_new(64);
+        sb_append(sb, "Line ");
+        sb_append_int(sb, p.cur_tok.line);
+        sb_append(sb, ":");
+        sb_append_int(sb, p.cur_tok.col);
+        sb_append(sb, " - ");
+        sb_append(sb, msg);
+        p.error_msg = sb_to_string(sb);
+    }
+}
+
+fn jp_parse_object(p: JsonParser) -> JsonValue {
+    // Consume '{'
+    jp_next_token(p);
+    let obj = json_object();
+
+    if p.cur_tok.kind == json_tok_rbrace() {
+        jp_next_token(p);
+        return obj;
+    }
+
+    while !p.has_error && p.cur_tok.kind != json_tok_eof() {
+        if p.cur_tok.kind != json_tok_string() {
+            jp_set_error(p, "expected string key in object");
+            return nil;
+        }
+
+        let key = p.cur_tok.str_val;
+        jp_next_token(p);
+
+        if p.cur_tok.kind != json_tok_colon() {
+            jp_set_error(p, "expected ':' after key in object");
+            return nil;
+        }
+        jp_next_token(p);
+
+        let val = jp_parse_value(p);
+        if p.has_error { return nil; }
+
+        json_set(obj, key, val);
+
+        if p.cur_tok.kind == json_tok_rbrace() {
+            jp_next_token(p);
+            return obj;
+        }
+
+        if p.cur_tok.kind != json_tok_comma() {
+            jp_set_error(p, "expected ',' or '}' in object");
+            return nil;
+        }
+        jp_next_token(p);
+
+        if p.cur_tok.kind == json_tok_rbrace() {
+            jp_set_error(p, "trailing comma not permitted in JSON object");
+            return nil;
+        }
+    }
+
+    if !p.has_error {
+        jp_set_error(p, "unclosed object, expected '}'");
+    }
+    return nil;
+}
+
+fn jp_parse_array(p: JsonParser) -> JsonValue {
+    // Consume '['
+    jp_next_token(p);
+    let arr = json_array();
+
+    if p.cur_tok.kind == json_tok_rbracket() {
+        jp_next_token(p);
+        return arr;
+    }
+
+    while !p.has_error && p.cur_tok.kind != json_tok_eof() {
+        let val = jp_parse_value(p);
+        if p.has_error { return nil; }
+
+        json_arr_push(arr, val);
+
+        if p.cur_tok.kind == json_tok_rbracket() {
+            jp_next_token(p);
+            return arr;
+        }
+
+        if p.cur_tok.kind != json_tok_comma() {
+            jp_set_error(p, "expected ',' or ']' in array");
+            return nil;
+        }
+        jp_next_token(p);
+
+        if p.cur_tok.kind == json_tok_rbracket() {
+            jp_set_error(p, "trailing comma not permitted in JSON array");
+            return nil;
+        }
+    }
+
+    if !p.has_error {
+        jp_set_error(p, "unclosed array, expected ']'");
+    }
+    return nil;
+}
+
+fn jp_parse_value(p: JsonParser) -> JsonValue {
+    if p.has_error { return nil; }
+
+    if p.cur_tok.kind == json_tok_null() {
+        jp_next_token(p);
+        return json_null();
+    }
+    if p.cur_tok.kind == json_tok_true() {
+        jp_next_token(p);
+        return json_bool(true);
+    }
+    if p.cur_tok.kind == json_tok_false() {
+        jp_next_token(p);
+        return json_bool(false);
+    }
+    if p.cur_tok.kind == json_tok_number() {
+        let n = p.cur_tok.int_val;
+        jp_next_token(p);
+        return json_number(n);
+    }
+    if p.cur_tok.kind == json_tok_string() {
+        let s = p.cur_tok.str_val;
+        jp_next_token(p);
+        return json_string(s);
+    }
+    if p.cur_tok.kind == json_tok_lbrace() {
+        return jp_parse_object(p);
+    }
+    if p.cur_tok.kind == json_tok_lbracket() {
+        return jp_parse_array(p);
+    }
+
+    jp_set_error(p, "unexpected token when parsing value");
+    return nil;
+}
+
+fn json_parse(input: string) -> Result<JsonValue, string> {
+    if input == nil || str_len(input) == 0 {
+        return Result.Err("empty JSON input");
+    }
+
+    let lex = json_lex_new(input);
+    let p = new JsonParser {
+        lex: lex,
+        cur_tok: nil,
+        has_error: false,
+        error_msg: ""
+    };
+
+    jp_next_token(p);
+    if p.has_error {
+        return Result.Err(p.error_msg);
+    }
+
+    let val = jp_parse_value(p);
+    if p.has_error {
+        return Result.Err(p.error_msg);
+    }
+
+    if p.cur_tok.kind != json_tok_eof() {
+        jp_set_error(p, "unexpected trailing tokens after JSON value");
+        return Result.Err(p.error_msg);
+    }
+
+    return Result.Ok(val);
+}
+
+// ----------------------------------------------------------------------------
+// JSON Serializer (Stringify & Pretty Print)
+// ----------------------------------------------------------------------------
+
+fn json_write_escaped_str(sb: StringBuilder, s: string) {
+    sb_append_char(sb, 34); // '"'
+    let len = str_len(s);
+    let i: i64 = 0;
+    while i < len {
+        let ch = str_char(s, i);
+        if ch == 34 { // '"'
+            sb_append_char(sb, 92); sb_append_char(sb, 34);
+        } else if ch == 92 { // '\'
+            sb_append_char(sb, 92); sb_append_char(sb, 92);
+        } else if ch == 10 { // '\n'
+            sb_append_char(sb, 92); sb_append_char(sb, 110);
+        } else if ch == 13 { // '\r'
+            sb_append_char(sb, 92); sb_append_char(sb, 114);
+        } else if ch == 9 {  // '\t'
+            sb_append_char(sb, 92); sb_append_char(sb, 116);
+        } else if ch == 8 {  // '\b'
+            sb_append_char(sb, 92); sb_append_char(sb, 98);
+        } else if ch == 12 { // '\f'
+            sb_append_char(sb, 92); sb_append_char(sb, 102);
+        } else {
+            sb_append_char(sb, ch);
+        }
+        i = i + 1;
+    }
+    sb_append_char(sb, 34); // '"'
+}
+
+fn json_stringify_buf(sb: StringBuilder, v: JsonValue) {
+    if v == nil {
+        sb_append(sb, "null");
+        return;
+    }
+
+    match v {
+        JsonValue.Null => {
+            sb_append(sb, "null");
+        },
+        JsonValue.Bool(b) => {
+            if b { sb_append(sb, "true"); }
+            else { sb_append(sb, "false"); }
+        },
+        JsonValue.Number(n) => {
+            sb_append_int(sb, n);
+        },
+        JsonValue.String(s) => {
+            json_write_escaped_str(sb, s);
+        },
+        JsonValue.Array(arr) => {
+            sb_append_char(sb, 91); // '['
+            let len = arr.size;
+            let i: i64 = 0;
+            while i < len {
+                if i > 0 { sb_append_char(sb, 44); } // ','
+                let item: JsonValue = vec_get(arr, i);
+                json_stringify_buf(sb, item);
+                i = i + 1;
+            }
+            sb_append_char(sb, 93); // ']'
+        },
+        JsonValue.Object(obj) => {
+            sb_append_char(sb, 123); // '{'
+            let len = json_obj_len(obj);
+            let i: i64 = 0;
+            while i < len {
+                if i > 0 { sb_append_char(sb, 44); } // ','
+                let k = json_obj_key_at(obj, i);
+                json_write_escaped_str(sb, k);
+                sb_append_char(sb, 58); // ':'
+                let val: JsonValue = json_obj_get(obj, k);
+                json_stringify_buf(sb, val);
+                i = i + 1;
+            }
+            sb_append_char(sb, 125); // '}'
+        }
+    }
+}
+
+fn json_stringify(v: JsonValue) -> string {
+    let sb = sb_new(128);
+    json_stringify_buf(sb, v);
+    return sb_to_string(sb);
+}
+
+fn json_write_indent(sb: StringBuilder, level: i64, indent_size: i64) {
+    let total = level * indent_size;
+    let i: i64 = 0;
+    while i < total {
+        sb_append_char(sb, 32); // ' '
+        i = i + 1;
+    }
+}
+
+fn json_stringify_pretty_buf(sb: StringBuilder, v: JsonValue, level: i64, indent_size: i64) {
+    if v == nil {
+        sb_append(sb, "null");
+        return;
+    }
+
+    match v {
+        JsonValue.Null => {
+            sb_append(sb, "null");
+        },
+        JsonValue.Bool(b) => {
+            if b { sb_append(sb, "true"); }
+            else { sb_append(sb, "false"); }
+        },
+        JsonValue.Number(n) => {
+            sb_append_int(sb, n);
+        },
+        JsonValue.String(s) => {
+            json_write_escaped_str(sb, s);
+        },
+        JsonValue.Array(arr) => {
+            let len = arr.size;
+            if len == 0 {
+                sb_append(sb, "[]");
+                return;
+            }
+            sb_append(sb, "[\n");
+            let i: i64 = 0;
+            while i < len {
+                json_write_indent(sb, level + 1, indent_size);
+                let item: JsonValue = vec_get(arr, i);
+                json_stringify_pretty_buf(sb, item, level + 1, indent_size);
+                if i + 1 < len { sb_append_char(sb, 44); } // ','
+                sb_append_char(sb, 10); // '\n'
+                i = i + 1;
+            }
+            json_write_indent(sb, level, indent_size);
+            sb_append_char(sb, 93); // ']'
+        },
+        JsonValue.Object(obj) => {
+            let len = json_obj_len(obj);
+            if len == 0 {
+                sb_append(sb, "{}");
+                return;
+            }
+            sb_append(sb, "{\n");
+            let i: i64 = 0;
+            while i < len {
+                json_write_indent(sb, level + 1, indent_size);
+                let k = json_obj_key_at(obj, i);
+                json_write_escaped_str(sb, k);
+                sb_append(sb, ": ");
+                let val: JsonValue = json_obj_get(obj, k);
+                json_stringify_pretty_buf(sb, val, level + 1, indent_size);
+                if i + 1 < len { sb_append_char(sb, 44); } // ','
+                sb_append_char(sb, 10); // '\n'
+                i = i + 1;
+            }
+            json_write_indent(sb, level, indent_size);
+            sb_append_char(sb, 125); // '}'
+        }
+    }
+}
+
+fn json_stringify_pretty(v: JsonValue, indent_size: i64) -> string {
+    let sb = sb_new(256);
+    let isize = indent_size;
+    if isize <= 0 { isize = 2; }
+    json_stringify_pretty_buf(sb, v, 0, isize);
+    return sb_to_string(sb);
+}
+
+// ----------------------------------------------------------------------------
+// Streaming Struct & Class Serializer (Zero-Intermediate Allocation)
+// ----------------------------------------------------------------------------
+
+class JsonSerializer {
+    sb: StringBuilder;
+    depth: i64;
+    comma_flags: Vector;
+}
+
+fn json_ser_new() -> JsonSerializer {
+    let flags = vec_new(64);
+    let i: i64 = 0;
+    while i < 64 {
+        vec_push(flags, 0);
+        i = i + 1;
+    }
+    return new JsonSerializer {
+        sb: sb_new(256),
+        depth: 0,
+        comma_flags: flags
+    };
+}
+
+fn json_ser_write_comma(ser: JsonSerializer) {
+    if ser.depth > 0 {
+        let idx = ser.depth - 1;
+        let flag = vec_get(ser.comma_flags, idx);
+        if flag == 1 {
+            sb_append_char(ser.sb, 44); // ','
+        }
+        vec_set(ser.comma_flags, idx, 1);
+    }
+}
+
+fn json_ser_begin_object(ser: JsonSerializer) {
+    json_ser_write_comma(ser);
+    sb_append_char(ser.sb, 123); // '{'
+    if ser.depth < ser.comma_flags.size {
+        vec_set(ser.comma_flags, ser.depth, 0);
+    }
+    ser.depth = ser.depth + 1;
+}
+
+fn json_ser_end_object(ser: JsonSerializer) {
+    if ser.depth > 0 {
+        ser.depth = ser.depth - 1;
+    }
+    sb_append_char(ser.sb, 125); // '}'
+}
+
+fn json_ser_begin_array(ser: JsonSerializer) {
+    json_ser_write_comma(ser);
+    sb_append_char(ser.sb, 91); // '['
+    if ser.depth < ser.comma_flags.size {
+        vec_set(ser.comma_flags, ser.depth, 0);
+    }
+    ser.depth = ser.depth + 1;
+}
+
+fn json_ser_end_array(ser: JsonSerializer) {
+    if ser.depth > 0 {
+        ser.depth = ser.depth - 1;
+    }
+    sb_append_char(ser.sb, 93); // ']'
+}
+
+fn json_ser_field_str(ser: JsonSerializer, key: string, val: string) {
+    json_ser_write_comma(ser);
+    json_write_escaped_str(ser.sb, key);
+    sb_append_char(ser.sb, 58); // ':'
+    json_write_escaped_str(ser.sb, val);
+}
+
+fn json_ser_field_int(ser: JsonSerializer, key: string, val: i64) {
+    json_ser_write_comma(ser);
+    json_write_escaped_str(ser.sb, key);
+    sb_append_char(ser.sb, 58); // ':'
+    sb_append_int(ser.sb, val);
+}
+
+fn json_ser_field_bool(ser: JsonSerializer, key: string, val: bool) {
+    json_ser_write_comma(ser);
+    json_write_escaped_str(ser.sb, key);
+    sb_append_char(ser.sb, 58); // ':'
+    if val { sb_append(ser.sb, "true"); }
+    else { sb_append(ser.sb, "false"); }
+}
+
+fn json_ser_field_null(ser: JsonSerializer, key: string) {
+    json_ser_write_comma(ser);
+    json_write_escaped_str(ser.sb, key);
+    sb_append_char(ser.sb, 58); // ':'
+    sb_append(ser.sb, "null");
+}
+
+fn json_ser_field_json(ser: JsonSerializer, key: string, val: JsonValue) {
+    json_ser_write_comma(ser);
+    json_write_escaped_str(ser.sb, key);
+    sb_append_char(ser.sb, 58); // ':'
+    json_stringify_buf(ser.sb, val);
+}
+
+fn json_ser_begin_field_object(ser: JsonSerializer, key: string) {
+    json_ser_write_comma(ser);
+    json_write_escaped_str(ser.sb, key);
+    sb_append_char(ser.sb, 58); // ':'
+    sb_append_char(ser.sb, 123); // '{'
+    if ser.depth < 64 {
+        ser.comma_flags[ser.depth] = 0;
+    }
+    ser.depth = ser.depth + 1;
+}
+
+fn json_ser_begin_field_array(ser: JsonSerializer, key: string) {
+    json_ser_write_comma(ser);
+    json_write_escaped_str(ser.sb, key);
+    sb_append_char(ser.sb, 58); // ':'
+    sb_append_char(ser.sb, 91); // '['
+    if ser.depth < 64 {
+        ser.comma_flags[ser.depth] = 0;
+    }
+    ser.depth = ser.depth + 1;
+}
+
+fn json_ser_array_str(ser: JsonSerializer, val: string) {
+    json_ser_write_comma(ser);
+    json_write_escaped_str(ser.sb, val);
+}
+
+fn json_ser_array_int(ser: JsonSerializer, val: i64) {
+    json_ser_write_comma(ser);
+    sb_append_int(ser.sb, val);
+}
+
+fn json_ser_array_bool(ser: JsonSerializer, val: bool) {
+    json_ser_write_comma(ser);
+    if val { sb_append(ser.sb, "true"); }
+    else { sb_append(ser.sb, "false"); }
+}
+
+fn json_ser_array_null(ser: JsonSerializer) {
+    json_ser_write_comma(ser);
+    sb_append(ser.sb, "null");
+}
+
+fn json_ser_array_json(ser: JsonSerializer, val: JsonValue) {
+    json_ser_write_comma(ser);
+    json_stringify_buf(ser.sb, val);
+}
+
+fn json_ser_finish(ser: JsonSerializer) -> string {
+    return sb_to_string(ser.sb);
+}
+
+// ----------------------------------------------------------------------------
+// File I/O & In-Place File Operations
+// ----------------------------------------------------------------------------
+
+fn json_read_file(path: string) -> Result<JsonValue, string> {
+    let res = fs_read_all(path);
+    if result_is_err(res) {
+        return Result.Err(str_concat("failed to read JSON file: ", path));
+    }
+    let content = result_unwrap(res);
+    return json_parse(content);
+}
+
+fn json_write_file(path: string, v: JsonValue) -> Result<bool, string> {
+    let s = json_stringify(v);
+    let res = fs_write_all(path, s);
+    if result_is_err(res) {
+        return Result.Err(str_concat("failed to write JSON file: ", path));
+    }
+    return Result.Ok(true);
+}
+
+fn json_write_file_pretty(path: string, v: JsonValue, indent_size: i64) -> Result<bool, string> {
+    let s = json_stringify_pretty(v, indent_size);
+    let with_newline = str_concat(s, "\n");
+    let res = fs_write_all(path, with_newline);
+    if result_is_err(res) {
+        return Result.Err(str_concat("failed to write JSON file: ", path));
+    }
+    return Result.Ok(true);
+}
+

@@ -1,0 +1,523 @@
+// ============================================================================
+// examples/test_json.gat - Comprehensive JSON Parser & Serializer Test Suite
+// ============================================================================
+
+import "std/json.gat";
+import "std/str.gat";
+import "std/result.gat";
+
+class UserProfile {
+    id: i64;
+    username: string;
+    email: string;
+    is_admin: bool;
+    karma: i64;
+}
+
+fn user_to_json(u: UserProfile) -> string {
+    let ser = json_ser_new();
+    json_ser_begin_object(ser);
+    json_ser_field_int(ser, "id", u.id);
+    json_ser_field_str(ser, "username", u.username);
+    json_ser_field_str(ser, "email", u.email);
+    json_ser_field_bool(ser, "is_admin", u.is_admin);
+    json_ser_field_int(ser, "karma", u.karma);
+    json_ser_end_object(ser);
+    return json_ser_finish(ser);
+}
+
+fn user_from_json(v: JsonValue) -> UserProfile {
+    return new UserProfile {
+        id: json_get_int(v, "id", 0),
+        username: json_get_str(v, "username", ""),
+        email: json_get_str(v, "email", ""),
+        is_admin: json_get_bool(v, "is_admin", false),
+        karma: json_get_int(v, "karma", 0)
+    };
+}
+
+fn test_primitives() -> bool {
+    print("Testing primitive values...\n");
+
+    let r_null = json_parse("null");
+    if result_is_err(r_null) {
+        print("[FAIL] Parsing 'null' returned error\n");
+        return false;
+    }
+    if !json_is_null(result_unwrap(r_null)) {
+        print("[FAIL] Parsing 'null' value is not null\n");
+        return false;
+    }
+
+    let r_true = json_parse("true");
+    if result_is_err(r_true) {
+        print("[FAIL] Parsing 'true' returned error\n");
+        return false;
+    }
+    let v_true = result_unwrap(r_true);
+    if !json_is_bool(v_true) {
+        print("[FAIL] 'true' is not bool\n");
+        return false;
+    }
+    if !json_as_bool(v_true) {
+        print("[FAIL] 'true' value is false\n");
+        return false;
+    }
+
+    let r_false = json_parse("false");
+    if result_is_err(r_false) {
+        print("[FAIL] Parsing 'false' returned error\n");
+        return false;
+    }
+    let v_false = result_unwrap(r_false);
+    if !json_is_bool(v_false) {
+        print("[FAIL] 'false' is not bool\n");
+        return false;
+    }
+    if json_as_bool(v_false) {
+        print("[FAIL] 'false' value is true\n");
+        return false;
+    }
+
+    let r_num = json_parse("123456");
+    if result_is_err(r_num) {
+        print("[FAIL] Parsing '123456' returned error\n");
+        return false;
+    }
+    let v_num = result_unwrap(r_num);
+    if !json_is_number(v_num) {
+        print("[FAIL] '123456' is not number\n");
+        return false;
+    }
+    if json_as_int(v_num) != 123456 {
+        print("[FAIL] '123456' value mismatch\n");
+        return false;
+    }
+
+    let r_neg = json_parse("-987");
+    if result_is_err(r_neg) {
+        print("[FAIL] Parsing '-987' returned error\n");
+        return false;
+    }
+    if json_as_int(result_unwrap(r_neg)) != (0 - 987) {
+        print("[FAIL] Parsing '-987' failed\n");
+        return false;
+    }
+
+    let r_str = json_parse("\"hello, gat JSON!\"");
+    if result_is_err(r_str) {
+        print("[FAIL] Parsing string returned error\n");
+        return false;
+    }
+    if !str_eq(json_as_string(result_unwrap(r_str)), "hello, gat JSON!") {
+        print("[FAIL] Parsing string failed\n");
+        return false;
+    }
+
+    print("  [PASS] Primitives test passed\n");
+    return true;
+}
+
+fn test_string_escapes() -> bool {
+    print("Testing string escape sequences...\n");
+
+    let raw_input = "\"line1\\nline2\\ttab\\\"quote\\\\slash\"";
+    let r = json_parse(raw_input);
+    if result_is_err(r) {
+        print("[FAIL] Failed to parse escaped string\n");
+        return false;
+    }
+    let parsed_str = json_as_string(result_unwrap(r));
+    if !str_contains(parsed_str, "line1") || !str_contains(parsed_str, "tab") {
+        print("[FAIL] Escaped string contents unexpected\n");
+        return false;
+    }
+
+    // Unicode escape \u0041 is 'A'
+    let r_uni = json_parse("\"letter: \\u0041\"");
+    if result_is_err(r_uni) {
+        print("[FAIL] Unicode escape \\u0041 returned error\n");
+        return false;
+    }
+    if !str_eq(json_as_string(result_unwrap(r_uni)), "letter: A") {
+        print("[FAIL] Unicode escape \\u0041 failed\n");
+        return false;
+    }
+
+    print("  [PASS] String escapes test passed\n");
+    return true;
+}
+
+fn test_arrays() -> bool {
+    print("Testing array parsing...\n");
+
+    let r_empty = json_parse("[]");
+    if result_is_err(r_empty) {
+        print("[FAIL] Empty array returned error\n");
+        return false;
+    }
+    if json_arr_len(result_unwrap(r_empty)) != 0 {
+        print("[FAIL] Empty array test failed\n");
+        return false;
+    }
+
+    let r_arr = json_parse("[10, 20, 30, \"four\", true, null]");
+    if result_is_err(r_arr) {
+        print("[FAIL] Mixed array parse error: ", result_unwrap_err(r_arr), "\n");
+        return false;
+    }
+
+    let v = result_unwrap(r_arr);
+    if json_arr_len(v) != 6 {
+        print("[FAIL] Array len expected 6, got: ", json_arr_len(v), "\n");
+        return false;
+    }
+
+    if json_as_int(json_arr_get(v, 0)) != 10 || json_as_int(json_arr_get(v, 1)) != 20 {
+        print("[FAIL] Array element value mismatch\n");
+        return false;
+    }
+
+    if !str_eq(json_as_string(json_arr_get(v, 3)), "four") {
+        print("[FAIL] Array string element mismatch\n");
+        return false;
+    }
+
+    if !json_as_bool(json_arr_get(v, 4)) || !json_is_null(json_arr_get(v, 5)) {
+        print("[FAIL] Array bool/null element mismatch\n");
+        return false;
+    }
+
+    print("  [PASS] Array test passed\n");
+    return true;
+}
+
+fn test_objects() -> bool {
+    print("Testing object parsing...\n");
+
+    let r_empty = json_parse("{}");
+    if result_is_err(r_empty) {
+        print("[FAIL] Empty object returned error\n");
+        return false;
+    }
+    if !json_is_object(result_unwrap(r_empty)) {
+        print("[FAIL] Empty object test failed\n");
+        return false;
+    }
+
+    let json_text = "{\"name\": \"Gat Language\", \"version\": 2, \"active\": true, \"tags\": [\"compiler\", \"fast\"]}";
+    let r = json_parse(json_text);
+    if result_is_err(r) {
+        let msg: string = result_unwrap_err(r);
+        print("[FAIL] Failed to parse object: ", msg, "\n");
+        return false;
+    }
+
+    let obj = result_unwrap(r);
+    if !str_eq(json_get_str(obj, "name", ""), "Gat Language") {
+        print("[FAIL] Field 'name' mismatch\n");
+        return false;
+    }
+
+    if json_get_int(obj, "version", 0) != 2 {
+        print("[FAIL] Field 'version' mismatch\n");
+        return false;
+    }
+
+    if !json_get_bool(obj, "active", false) {
+        print("[FAIL] Field 'active' mismatch\n");
+        return false;
+    }
+
+    let tags = json_get_arr(obj, "tags");
+    if tags == nil || tags.size != 2 {
+        print("[FAIL] Field 'tags' array mismatch\n");
+        return false;
+    }
+
+    print("  [PASS] Object test passed\n");
+    return true;
+}
+
+fn test_error_handling() -> bool {
+    print("Testing error handling on malformed JSON...\n");
+
+    let r1 = json_parse("{ \"unclosed\": 1 ");
+    if result_is_ok(r1) {
+        print("[FAIL] Expected error for unclosed object, but succeeded\n");
+        return false;
+    }
+
+    let r2 = json_parse("[1, 2, 3,]");
+    if result_is_ok(r2) {
+        print("[FAIL] Expected error for trailing comma in array, but succeeded\n");
+        return false;
+    }
+
+    let r3 = json_parse("{\"key\": \"value\",}");
+    if result_is_ok(r3) {
+        print("[FAIL] Expected error for trailing comma in object, but succeeded\n");
+        return false;
+    }
+
+    let r4 = json_parse("\"unterminated string");
+    if result_is_ok(r4) {
+        print("[FAIL] Expected error for unterminated string, but succeeded\n");
+        return false;
+    }
+
+    print("  [PASS] Error handling correctly rejected malformed JSON\n");
+    return true;
+}
+
+fn test_serialization_and_roundtrip() -> bool {
+    print("Testing compact and pretty serialization...\n");
+
+    let root = json_object();
+    json_set_str(root, "service", "auth-gateway");
+    json_set_int(root, "port", 8080);
+    json_set_bool(root, "ssl", true);
+
+    let endpoints = json_array();
+    json_arr_push_str(endpoints, "/login");
+    json_arr_push_str(endpoints, "/oauth/token");
+    json_arr_push_str(endpoints, "/logout");
+    json_set(root, "endpoints", endpoints);
+
+    let compact = json_stringify(root);
+    if !str_contains(compact, "\"service\":\"auth-gateway\"") ||
+       !str_contains(compact, "\"port\":8080") ||
+       !str_contains(compact, "\"ssl\":true") {
+        print("[FAIL] Compact stringify output unexpected: ", compact, "\n");
+        return false;
+    }
+
+    let pretty = json_stringify_pretty(root, 2);
+    if !str_contains(pretty, "  \"service\": \"auth-gateway\"") ||
+       !str_contains(pretty, "  \"endpoints\": [") {
+        print("[FAIL] Pretty stringify output unexpected: ", pretty, "\n");
+        return false;
+    }
+
+    // Roundtrip verification: re-parse compact string
+    let r_trip = json_parse(compact);
+    if result_is_err(r_trip) {
+        print("[FAIL] Roundtrip re-parse failed: ", result_unwrap_err(r_trip), "\n");
+        return false;
+    }
+
+    let trip_obj = result_unwrap(r_trip);
+    if !str_eq(json_get_str(trip_obj, "service", ""), "auth-gateway") ||
+       json_get_int(trip_obj, "port", 0) != 8080 ||
+       !json_get_bool(trip_obj, "ssl", false) {
+        print("[FAIL] Roundtrip fields mismatch\n");
+        return false;
+    }
+
+    print("  [PASS] Serialization & round-trip test passed\n");
+    return true;
+}
+
+fn test_struct_serialization() -> bool {
+    print("Testing struct/class serialization and deserialization...\n");
+
+    let original = new UserProfile {
+        id: 42,
+        username: "ferris",
+        email: "ferris@gat-lang.org",
+        is_admin: true,
+        karma: 9999
+    };
+
+    let serialized = user_to_json(original);
+    if !str_contains(serialized, "\"username\":\"ferris\"") ||
+       !str_contains(serialized, "\"karma\":9999") ||
+       !str_contains(serialized, "\"is_admin\":true") {
+        print("[FAIL] UserProfile serialized incorrectly: ", serialized, "\n");
+        return false;
+    }
+
+    let r = json_parse(serialized);
+    if result_is_err(r) {
+        print("[FAIL] Failed to re-parse serialized UserProfile\n");
+        return false;
+    }
+
+    let reconstructed = user_from_json(result_unwrap(r));
+    if reconstructed.id != 42 ||
+       !str_eq(reconstructed.username, "ferris") ||
+       !str_eq(reconstructed.email, "ferris@gat-lang.org") ||
+       !reconstructed.is_admin ||
+       reconstructed.karma != 9999 {
+        print("[FAIL] Reconstructed UserProfile fields mismatch\n");
+        return false;
+    }
+
+    print("  [PASS] Struct/class serialization round-trip passed\n");
+    return true;
+}
+
+fn test_file_read_edit_write() -> bool {
+    print("Testing JSON file read, edit, and write operations...\n");
+
+    let tmp_path = "tmp_config_test.json";
+
+    // Build initial config
+    let root = json_object();
+    json_set_str(root, "app_name", "GatServer");
+    json_set_int(root, "port", 3000);
+    json_set_bool(root, "debug", false);
+
+    let db = json_object();
+    json_set_str(db, "host", "localhost");
+    json_set_int(db, "port", 5432);
+    json_set(root, "database", db);
+
+    let endpoints = json_array();
+    json_arr_push_str(endpoints, "/health");
+    json_arr_push_str(endpoints, "/api/v1");
+    json_set(root, "endpoints", endpoints);
+
+    // Write pretty JSON to disk
+    let write_res = json_write_file_pretty(tmp_path, root, 2);
+    if result_is_err(write_res) {
+        print("[FAIL] json_write_file_pretty failed\n");
+        return false;
+    }
+
+    // Read back from disk
+    let read_res = json_read_file(tmp_path);
+    if result_is_err(read_res) {
+        print("[FAIL] json_read_file failed\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+
+    let loaded = result_unwrap(read_res);
+    if !str_eq(json_get_str(loaded, "app_name", ""), "GatServer") ||
+       json_get_int(loaded, "port", 0) != 3000 ||
+       json_get_bool(loaded, "debug", true) {
+        print("[FAIL] Loaded JSON content mismatch\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+
+    // Edit loaded JSON:
+    // 1. Direct field modification
+    json_set_int(loaded, "port", 8080);
+    json_set_bool(loaded, "debug", true);
+
+    // 2. Path-based nested editing
+    json_set_path_int(loaded, "database.port", 5433);
+    json_set_path_str(loaded, "database.host", "db.internal");
+
+    // 3. Array mutation, element setting, and removal
+    let eps = json_get(loaded, "endpoints");
+    json_arr_push_str(eps, "/metrics");
+    json_arr_set_str(eps, 0, "/status");
+    let removed_ep = json_arr_remove_at(eps, 1); // remove "/api/v1"
+    if !str_eq(json_as_string(removed_ep), "/api/v1") {
+        print("[FAIL] json_arr_remove_at returned unexpected element\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+
+    // 4. Object field removal
+    json_set_str(loaded, "temporary_field", "to_be_deleted");
+    if !json_has(loaded, "temporary_field") {
+        print("[FAIL] temporary_field not present before removal\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+    json_remove(loaded, "temporary_field");
+    if json_has(loaded, "temporary_field") {
+        print("[FAIL] temporary_field still present after json_remove\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+
+    // Save edited config back to disk (pretty)
+    let save_res = json_write_file_pretty(tmp_path, loaded, 2);
+    if result_is_err(save_res) {
+        print("[FAIL] Failed to save edited JSON back to disk\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+
+    // Read again to verify persistence of edits
+    let verify_res = json_read_file(tmp_path);
+    if result_is_err(verify_res) {
+        print("[FAIL] Failed to re-read edited JSON\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+
+    let verified = result_unwrap(verify_res);
+    if json_get_int(verified, "port", 0) != 8080 {
+        print("[FAIL] Edited port mismatch\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+    if !json_get_bool(verified, "debug", false) {
+        print("[FAIL] Edited debug mismatch\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+    if json_get_path_int(verified, "database.port", 0) != 5433 ||
+       !str_eq(json_get_path_str(verified, "database.host", ""), "db.internal") {
+        print("[FAIL] Edited nested database path fields mismatch\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+
+    let ver_eps = json_get(verified, "endpoints");
+    if json_arr_len(ver_eps) != 2 ||
+       !str_eq(json_as_string(json_arr_get(ver_eps, 0)), "/status") ||
+       !str_eq(json_as_string(json_arr_get(ver_eps, 1)), "/metrics") {
+        print("[FAIL] Edited endpoints array mismatch\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+
+    // Also test compact json_write_file
+    let compact_save = json_write_file(tmp_path, verified);
+    if result_is_err(compact_save) {
+        print("[FAIL] json_write_file compact failed\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+    let compact_read = json_read_file(tmp_path);
+    if result_is_err(compact_read) {
+        print("[FAIL] Failed to re-read compact JSON file\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+    let compact_val = result_unwrap(compact_read);
+    if json_get_int(compact_val, "port", 0) != 8080 {
+        print("[FAIL] Compact re-read port mismatch\n");
+        fs_delete_file(tmp_path);
+        return false;
+    }
+
+    // Cleanup
+    fs_delete_file(tmp_path);
+
+    print("  [PASS] JSON file read, edit, and write verified successfully\n");
+    return true;
+}
+
+fn main() -> i64 {
+    print("=== Gat Standard Library: JSON Test Suite ===\n");
+
+    if !test_primitives() { return 1; }
+    if !test_string_escapes() { return 1; }
+    if !test_arrays() { return 1; }
+    if !test_objects() { return 1; }
+    if !test_error_handling() { return 1; }
+    if !test_serialization_and_roundtrip() { return 1; }
+    if !test_struct_serialization() { return 1; }
+    if !test_file_read_edit_write() { return 1; }
+
+    print("All JSON parser & serializer tests completed successfully!\n");
+    return 0;
+}
