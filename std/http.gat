@@ -1,0 +1,672 @@
+// ============================================================================
+// std/http.gat - Native HTTP 1.1 Client, Server & JSON Router
+// ============================================================================
+
+import "std/str.gat";
+import "std/vec.gat";
+import "std/map.gat";
+import "std/result.gat";
+import "std/net.gat";
+import "std/json.gat";
+
+// ============================================================================
+// HTTP Headers (Case-Insensitive Storage)
+// ============================================================================
+
+class HttpHeaders {
+    map: Map;       // lower_name -> value
+    names: Vector;  // original casing list
+}
+
+fn http_headers_new() -> HttpHeaders {
+    return new HttpHeaders {
+        map: map_new(16),
+        names: vec_new(8)
+    };
+}
+
+fn http_headers_set(h: HttpHeaders, name: string, value: string) {
+    if h == nil || name == nil { return; }
+    let lower = str_to_lower(name);
+    if !map_has(h.map, lower) {
+        vec_push(h.names, name);
+    }
+    map_put(h.map, lower, value);
+}
+
+fn http_headers_get(h: HttpHeaders, name: string, default_val: string) -> string {
+    if h == nil || name == nil { return default_val; }
+    let lower = str_to_lower(name);
+    if !map_has(h.map, lower) {
+        return default_val;
+    }
+    let val: string = map_get(h.map, lower, 0);
+    return val;
+}
+
+fn http_headers_has(h: HttpHeaders, name: string) -> bool {
+    if h == nil || name == nil { return false; }
+    let lower = str_to_lower(name);
+    return map_has(h.map, lower);
+}
+
+fn http_headers_len(h: HttpHeaders) -> i64 {
+    if h == nil { return 0; }
+    return h.names.size;
+}
+
+fn http_headers_name_at(h: HttpHeaders, idx: i64) -> string {
+    if h == nil { return ""; }
+    let n: string = vec_get(h.names, idx);
+    return n;
+}
+
+// ============================================================================
+// HTTP Request & Response Models
+// ============================================================================
+
+class HttpRequest {
+    method: string;
+    path: string;
+    query: string;
+    version: string;
+    headers: HttpHeaders;
+    body: string;
+}
+
+fn http_request_new(method: string, path: string) -> HttpRequest {
+    return new HttpRequest {
+        method: method,
+        path: path,
+        query: "",
+        version: "HTTP/1.1",
+        headers: http_headers_new(),
+        body: ""
+    };
+}
+
+fn http_req_json(req: HttpRequest) -> Result<JsonValue, string> {
+    if req == nil || str_len(req.body) == 0 {
+        return Result.Err("empty request body");
+    }
+    return json_parse(req.body);
+}
+
+class HttpResponse {
+    status_code: i64;
+    status_text: string;
+    headers: HttpHeaders;
+    body: string;
+}
+
+fn http_response_new(status_code: i64, status_text: string) -> HttpResponse {
+    let headers = http_headers_new();
+    http_headers_set(headers, "Connection", "close");
+    return new HttpResponse {
+        status_code: status_code,
+        status_text: status_text,
+        headers: headers,
+        body: ""
+    };
+}
+
+fn http_resp_set_body(res: HttpResponse, body: string, content_type: string) {
+    res.body = body;
+    let len = str_len(body);
+    http_headers_set(res.headers, "Content-Length", str_from_int(len));
+    if str_len(content_type) > 0 {
+        http_headers_set(res.headers, "Content-Type", content_type);
+    }
+}
+
+fn http_resp_ok(body: string) -> HttpResponse {
+    let res = http_response_new(200, "OK");
+    http_resp_set_body(res, body, "text/plain; charset=utf-8");
+    return res;
+}
+
+fn http_resp_json(status_code: i64, val: JsonValue) -> HttpResponse {
+    let s = json_stringify(val);
+    let text = "OK";
+    if status_code == 201 { text = "Created"; }
+    else if status_code == 400 { text = "Bad Request"; }
+    else if status_code == 404 { text = "Not Found"; }
+    else if status_code == 500 { text = "Internal Server Error"; }
+    let res = http_response_new(status_code, text);
+    http_resp_set_body(res, s, "application/json");
+    return res;
+}
+
+fn http_resp_text(status_code: i64, body: string) -> HttpResponse {
+    let text = "OK";
+    if status_code == 400 { text = "Bad Request"; }
+    else if status_code == 404 { text = "Not Found"; }
+    else if status_code == 500 { text = "Internal Server Error"; }
+    let res = http_response_new(status_code, text);
+    http_resp_set_body(res, body, "text/plain; charset=utf-8");
+    return res;
+}
+
+fn http_resp_not_found() -> HttpResponse {
+    return http_resp_text(404, "404 Not Found\n");
+}
+
+fn http_resp_bad_request(msg: string) -> HttpResponse {
+    return http_resp_text(400, str_concat("400 Bad Request: ", msg));
+}
+
+fn http_resp_json_parsed(res: HttpResponse) -> Result<JsonValue, string> {
+    if res == nil || str_len(res.body) == 0 {
+        return Result.Err("empty response body");
+    }
+    return json_parse(res.body);
+}
+
+// ============================================================================
+// HTTP Wire Parsing & Serialization
+// ============================================================================
+
+fn http_format_request(req: HttpRequest) -> string {
+    let sb = sb_new(256 + str_len(req.body));
+    sb_append(sb, req.method);
+    sb_append_char(sb, 32); // ' '
+    sb_append(sb, req.path);
+    if str_len(req.query) > 0 {
+        sb_append_char(sb, 63); // '?'
+        sb_append(sb, req.query);
+    }
+    sb_append_char(sb, 32);
+    sb_append(sb, req.version);
+    sb_append(sb, "\r\n");
+
+    let num_headers = http_headers_len(req.headers);
+    let i: i64 = 0;
+    while i < num_headers {
+        let orig_name = http_headers_name_at(req.headers, i);
+        let val = http_headers_get(req.headers, orig_name, "");
+        sb_append(sb, orig_name);
+        sb_append(sb, ": ");
+        sb_append(sb, val);
+        sb_append(sb, "\r\n");
+        i = i + 1;
+    }
+    sb_append(sb, "\r\n");
+    if str_len(req.body) > 0 {
+        sb_append(sb, req.body);
+    }
+    return sb_to_string(sb);
+}
+
+fn http_format_response(res: HttpResponse) -> string {
+    let sb = sb_new(256 + str_len(res.body));
+    sb_append(sb, "HTTP/1.1 ");
+    sb_append_int(sb, res.status_code);
+    sb_append_char(sb, 32); // ' '
+    sb_append(sb, res.status_text);
+    sb_append(sb, "\r\n");
+
+    let num_headers = http_headers_len(res.headers);
+    let i: i64 = 0;
+    while i < num_headers {
+        let orig_name = http_headers_name_at(res.headers, i);
+        let val = http_headers_get(res.headers, orig_name, "");
+        sb_append(sb, orig_name);
+        sb_append(sb, ": ");
+        sb_append(sb, val);
+        sb_append(sb, "\r\n");
+        i = i + 1;
+    }
+    sb_append(sb, "\r\n");
+    if str_len(res.body) > 0 {
+        sb_append(sb, res.body);
+    }
+    return sb_to_string(sb);
+}
+
+fn http_find_line_end(s: string, start: i64) -> i64 {
+    let len = str_len(s);
+    let i = start;
+    while i < len {
+        if str_char(s, i) == 10 { // '\n'
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fn http_parse_request(raw_data: string) -> Result<HttpRequest, string> {
+    if raw_data == nil || str_len(raw_data) == 0 {
+        return Result.Err("empty raw HTTP request");
+    }
+
+    let len = str_len(raw_data);
+    let first_eol = http_find_line_end(raw_data, 0);
+    if first_eol < 0 {
+        return Result.Err("malformed HTTP request line");
+    }
+
+    let req_line_len = first_eol;
+    if req_line_len > 0 && str_char(raw_data, req_line_len - 1) == 13 { // '\r'
+        req_line_len = req_line_len - 1;
+    }
+    let req_line = str_sub(raw_data, 0, req_line_len);
+
+    // Split request line by space: METHOD URI VERSION
+    let rlen = str_len(req_line);
+    let sp1: i64 = 0 - 1;
+    let sp2: i64 = 0 - 1;
+    let i: i64 = 0;
+    while i < rlen {
+        if str_char(req_line, i) == 32 { // ' '
+            if sp1 < 0 { sp1 = i; }
+            else if sp2 < 0 { sp2 = i; }
+        }
+        i = i + 1;
+    }
+
+    if sp1 < 0 || sp2 < 0 {
+        return Result.Err("invalid HTTP request line format");
+    }
+
+    let method = str_sub(req_line, 0, sp1);
+    let uri = str_sub(req_line, sp1 + 1, sp2 - sp1 - 1);
+    let version = str_sub(req_line, sp2 + 1, rlen - sp2 - 1);
+
+    // Separate path and query string
+    let path = uri;
+    let query = "";
+    let q_idx = str_find(uri, "?");
+    if q_idx >= 0 {
+        path = str_sub(uri, 0, q_idx);
+        query = str_sub(uri, q_idx + 1, str_len(uri) - q_idx - 1);
+    }
+
+    let headers = http_headers_new();
+    let cur_pos = first_eol + 1;
+    let parsing_headers = true;
+    let body_start: i64 = cur_pos;
+
+    while cur_pos < len && parsing_headers {
+        let eol = http_find_line_end(raw_data, cur_pos);
+        if eol < 0 {
+            parsing_headers = false;
+            body_start = cur_pos;
+        } else {
+            let line_len = eol - cur_pos;
+            if line_len > 0 && str_char(raw_data, eol - 1) == 13 {
+                line_len = line_len - 1;
+            }
+
+            if line_len == 0 {
+                parsing_headers = false;
+                body_start = eol + 1;
+            } else {
+                let hline = str_sub(raw_data, cur_pos, line_len);
+                let col_idx = str_find(hline, ":");
+                if col_idx > 0 {
+                    let hname = str_trim(str_sub(hline, 0, col_idx));
+                    let hval = str_trim(str_sub(hline, col_idx + 1, str_len(hline) - col_idx - 1));
+                    http_headers_set(headers, hname, hval);
+                }
+                cur_pos = eol + 1;
+            }
+        }
+    }
+
+    let body = "";
+    if body_start < len {
+        body = str_sub(raw_data, body_start, len - body_start);
+    }
+
+    return Result.Ok(new HttpRequest {
+        method: method,
+        path: path,
+        query: query,
+        version: version,
+        headers: headers,
+        body: body
+    });
+}
+
+fn http_parse_response(raw_data: string) -> Result<HttpResponse, string> {
+    if raw_data == nil || str_len(raw_data) == 0 {
+        return Result.Err("empty raw HTTP response");
+    }
+
+    let len = str_len(raw_data);
+    let first_eol = http_find_line_end(raw_data, 0);
+    if first_eol < 0 {
+        return Result.Err("malformed HTTP status line");
+    }
+
+    let status_line_len = first_eol;
+    if status_line_len > 0 && str_char(raw_data, status_line_len - 1) == 13 {
+        status_line_len = status_line_len - 1;
+    }
+    let status_line = str_sub(raw_data, 0, status_line_len);
+
+    // Split status line: VERSION STATUS_CODE STATUS_TEXT
+    let slen = str_len(status_line);
+    let sp1: i64 = 0 - 1;
+    let sp2: i64 = 0 - 1;
+    let i: i64 = 0;
+    while i < slen {
+        if str_char(status_line, i) == 32 {
+            if sp1 < 0 { sp1 = i; }
+            else if sp2 < 0 { sp2 = i; }
+        }
+        i = i + 1;
+    }
+
+    if sp1 < 0 {
+        return Result.Err("invalid HTTP status line format");
+    }
+
+    let code_str = "";
+    let status_text = "";
+    if sp2 > 0 {
+        code_str = str_sub(status_line, sp1 + 1, sp2 - sp1 - 1);
+        status_text = str_sub(status_line, sp2 + 1, slen - sp2 - 1);
+    } else {
+        code_str = str_sub(status_line, sp1 + 1, slen - sp1 - 1);
+    }
+
+    let code_res = str_parse_int(code_str);
+    if result_is_err(code_res) {
+        return Result.Err(str_concat("invalid status code: ", code_str));
+    }
+    let status_code = result_unwrap(code_res);
+
+    let headers = http_headers_new();
+    let cur_pos = first_eol + 1;
+    let parsing_headers = true;
+    let body_start: i64 = cur_pos;
+
+    while cur_pos < len && parsing_headers {
+        let eol = http_find_line_end(raw_data, cur_pos);
+        if eol < 0 {
+            parsing_headers = false;
+            body_start = cur_pos;
+        } else {
+            let line_len = eol - cur_pos;
+            if line_len > 0 && str_char(raw_data, eol - 1) == 13 {
+                line_len = line_len - 1;
+            }
+
+            if line_len == 0 {
+                parsing_headers = false;
+                body_start = eol + 1;
+            } else {
+                let hline = str_sub(raw_data, cur_pos, line_len);
+                let col_idx = str_find(hline, ":");
+                if col_idx > 0 {
+                    let hname = str_trim(str_sub(hline, 0, col_idx));
+                    let hval = str_trim(str_sub(hline, col_idx + 1, str_len(hline) - col_idx - 1));
+                    http_headers_set(headers, hname, hval);
+                }
+                cur_pos = eol + 1;
+            }
+        }
+    }
+
+    let body = "";
+    if body_start < len {
+        body = str_sub(raw_data, body_start, len - body_start);
+    }
+
+    return Result.Ok(new HttpResponse {
+        status_code: status_code,
+        status_text: status_text,
+        headers: headers,
+        body: body
+    });
+}
+
+// ============================================================================
+// HTTP Client
+// ============================================================================
+
+class HttpUrl {
+    host: string;
+    port: i64;
+    path: string;
+}
+
+fn http_parse_url(url: string) -> Result<HttpUrl, string> {
+    if url == nil || str_len(url) == 0 {
+        return Result.Err("empty URL");
+    }
+
+    let u = url;
+    if str_find(u, "http://") == 0 {
+        u = str_sub(u, 7, str_len(u) - 7);
+    }
+
+    let slash_idx = str_find(u, "/");
+    let host_port = u;
+    let path = "/";
+    if slash_idx >= 0 {
+        host_port = str_sub(u, 0, slash_idx);
+        path = str_sub(u, slash_idx, str_len(u) - slash_idx);
+    }
+
+    let host = host_port;
+    let port: i64 = 80;
+    let col_idx = str_find(host_port, ":");
+    if col_idx >= 0 {
+        host = str_sub(host_port, 0, col_idx);
+        let port_str = str_sub(host_port, col_idx + 1, str_len(host_port) - col_idx - 1);
+        let pres = str_parse_int(port_str);
+        if result_is_err(pres) {
+            return Result.Err(str_concat("invalid port in URL: ", port_str));
+        }
+        port = result_unwrap(pres);
+    }
+
+    if str_eq(host, "localhost") {
+        host = "127.0.0.1";
+    }
+
+    return Result.Ok(new HttpUrl {
+        host: host,
+        port: port,
+        path: path
+    });
+}
+
+fn http_request(method: string, url: string, custom_headers: HttpHeaders, body: string) -> Result<HttpResponse, string> {
+    let url_res = http_parse_url(url);
+    if result_is_err(url_res) {
+        return Result.Err(result_unwrap_err(url_res));
+    }
+    let u: HttpUrl = result_unwrap(url_res);
+
+    let stream = tcp_connect(u.host, u.port);
+    if stream == nil {
+        return Result.Err(str_concat("failed to connect to ", str_concat(u.host, str_concat(":", str_from_int(u.port)))));
+    }
+
+    let req = http_request_new(method, u.path);
+    http_headers_set(req.headers, "Host", str_concat(u.host, str_concat(":", str_from_int(u.port))));
+    http_headers_set(req.headers, "Connection", "close");
+
+    if custom_headers != nil {
+        let n_count = http_headers_len(custom_headers);
+        let i: i64 = 0;
+        while i < n_count {
+            let hn = http_headers_name_at(custom_headers, i);
+            let hv = http_headers_get(custom_headers, hn, "");
+            http_headers_set(req.headers, hn, hv);
+            i = i + 1;
+        }
+    }
+
+    if str_len(body) > 0 {
+        req.body = body;
+        http_headers_set(req.headers, "Content-Length", str_from_int(str_len(body)));
+    }
+
+    let wire_req = http_format_request(req);
+    let sent = tcp_send(stream, wire_req);
+    if sent < 0 {
+        tcp_close(stream);
+        return Result.Err("failed to send HTTP request data");
+    }
+
+    // Read response until EOF
+    let resp_sb = sb_new(4096);
+    let keep_reading = true;
+    while keep_reading {
+        let chunk = tcp_recv(stream, 4096);
+        if str_len(chunk) == 0 {
+            keep_reading = false;
+        } else {
+            sb_append(resp_sb, chunk);
+        }
+    }
+    tcp_close(stream);
+
+    let raw_resp = sb_to_string(resp_sb);
+    return http_parse_response(raw_resp);
+}
+
+fn http_get(url: string) -> Result<HttpResponse, string> {
+    return http_request("GET", url, nil, "");
+}
+
+fn http_post_json(url: string, payload: JsonValue) -> Result<HttpResponse, string> {
+    let headers = http_headers_new();
+    http_headers_set(headers, "Content-Type", "application/json");
+    let s = json_stringify(payload);
+    return http_request("POST", url, headers, s);
+}
+
+fn http_post_text(url: string, body: string, content_type: string) -> Result<HttpResponse, string> {
+    let headers = http_headers_new();
+    if str_len(content_type) > 0 {
+        http_headers_set(headers, "Content-Type", content_type);
+    }
+    return http_request("POST", url, headers, body);
+}
+
+// ============================================================================
+// HTTP Router & Server
+// ============================================================================
+
+class HttpRoute {
+    method: string; // lower-cased or "*"
+    path: string;
+    handler: fn(HttpRequest) -> HttpResponse;
+}
+
+class HttpRouter {
+    routes: Vector; // Vector<HttpRoute>
+    default_handler: fn(HttpRequest) -> HttpResponse;
+}
+
+fn http_router_new() -> HttpRouter {
+    return new HttpRouter {
+        routes: vec_new(8),
+        default_handler: nil
+    };
+}
+
+fn http_router_add(r: HttpRouter, method: string, path: string, handler: fn(HttpRequest) -> HttpResponse) {
+    let route = new HttpRoute {
+        method: str_to_lower(method),
+        path: path,
+        handler: handler
+    };
+    vec_push(r.routes, route);
+}
+
+fn http_router_get(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse) {
+    http_router_add(r, "get", path, handler);
+}
+
+fn http_router_post(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse) {
+    http_router_add(r, "post", path, handler);
+}
+
+fn http_router_put(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse) {
+    http_router_add(r, "put", path, handler);
+}
+
+fn http_router_delete(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse) {
+    http_router_add(r, "delete", path, handler);
+}
+
+fn http_router_dispatch(r: HttpRouter, req: HttpRequest) -> HttpResponse {
+    let req_m = str_to_lower(req.method);
+    let count = r.routes.size;
+    let i: i64 = 0;
+    while i < count {
+        let route: HttpRoute = vec_get(r.routes, i);
+        if str_eq(route.path, req.path) {
+            if str_eq(route.method, req_m) || str_eq(route.method, "*") {
+                let h = route.handler;
+                return h(req);
+            }
+        }
+        i = i + 1;
+    }
+    if r.default_handler != nil {
+        let dh = r.default_handler;
+        return dh(req);
+    }
+    return http_resp_not_found();
+}
+
+class HttpServer {
+    listener: TcpListener;
+    router: HttpRouter;
+    is_running: bool;
+    port: i64;
+}
+
+fn http_server_bind(ip: string, port: i64, router: HttpRouter) -> Result<HttpServer, string> {
+    let listener = tcp_listen(ip, port);
+    if listener == nil {
+        return Result.Err(str_concat("failed to bind HTTP server to port ", str_from_int(port)));
+    }
+    return Result.Ok(new HttpServer {
+        listener: listener,
+        router: router,
+        is_running: true,
+        port: port
+    });
+}
+
+fn http_server_handle_one(server: HttpServer) -> bool {
+    if server == nil || !server.is_running { return false; }
+    let client = tcp_accept(server.listener);
+    if client == nil {
+        return false;
+    }
+
+    let raw_req = tcp_recv(client, 16384);
+    if str_len(raw_req) > 0 {
+        let parsed = http_parse_request(raw_req);
+        let resp: HttpResponse = nil;
+        if result_is_err(parsed) {
+            resp = http_resp_bad_request(result_unwrap_err(parsed));
+        } else {
+            let req: HttpRequest = result_unwrap(parsed);
+            resp = http_router_dispatch(server.router, req);
+        }
+        let wire_resp = http_format_response(resp);
+        tcp_send(client, wire_resp);
+    }
+    tcp_close(client);
+    return true;
+}
+
+fn http_server_stop(server: HttpServer) {
+    if server != nil {
+        server.is_running = false;
+        if server.listener != nil {
+            tcp_listener_close(server.listener);
+        }
+    }
+}

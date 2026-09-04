@@ -1,0 +1,373 @@
+// ============================================================================
+// examples/test_http.gat - Native HTTP 1.1 Client, Server & Router Test Suite
+// ============================================================================
+
+import "std/http.gat";
+import "std/json.gat";
+import "std/str.gat";
+import "std/result.gat";
+import "std/thread.gat";
+import "std/process.gat";
+
+fn test_headers() -> bool {
+    print("Testing HttpHeaders case-insensitivity & operations...\n");
+
+    let h = http_headers_new();
+    http_headers_set(h, "Content-Type", "application/json");
+    http_headers_set(h, "X-Custom-Auth", "token-xyz-123");
+    http_headers_set(h, "accept", "text/plain");
+
+    if !http_headers_has(h, "content-type") ||
+       !http_headers_has(h, "CONTENT-TYPE") ||
+       !http_headers_has(h, "Content-Type") {
+        print("[FAIL] HttpHeaders case-insensitive lookup failed\n");
+        return false;
+    }
+
+    let ct = http_headers_get(h, "content-type", "");
+    if !str_eq(ct, "application/json") {
+        print("[FAIL] content-type value mismatch: ", ct, "\n");
+        return false;
+    }
+
+    let auth = http_headers_get(h, "x-custom-auth", "");
+    if !str_eq(auth, "token-xyz-123") {
+        print("[FAIL] x-custom-auth value mismatch: ", auth, "\n");
+        return false;
+    }
+
+    let def_val = http_headers_get(h, "not-existing-header", "fallback");
+    if !str_eq(def_val, "fallback") {
+        print("[FAIL] Default header fallback failed\n");
+        return false;
+    }
+
+    print("  [PASS] HttpHeaders tests passed\n");
+    return true;
+}
+
+fn test_request_parser() -> bool {
+    print("Testing HTTP request parsing...\n");
+
+    let raw_req_str = "POST /api/v1/users?filter=active&sort=desc HTTP/1.1\r\nHost: api.example.com\r\nContent-Type: application/json\r\nContent-Length: 18\r\n\r\n{\"username\":\"gat\"}";
+    let res = http_parse_request(raw_req_str);
+    if result_is_err(res) {
+        print("[FAIL] Failed to parse HTTP request: ", result_unwrap_err(res), "\n");
+        return false;
+    }
+
+    let req: HttpRequest = result_unwrap(res);
+    if !str_eq(req.method, "POST") {
+        print("[FAIL] Request method mismatch: ", req.method, "\n");
+        return false;
+    }
+    if !str_eq(req.path, "/api/v1/users") {
+        print("[FAIL] Request path mismatch: ", req.path, "\n");
+        return false;
+    }
+    if !str_eq(req.query, "filter=active&sort=desc") {
+        print("[FAIL] Request query mismatch: ", req.query, "\n");
+        return false;
+    }
+    if !str_eq(req.version, "HTTP/1.1") {
+        print("[FAIL] Request version mismatch: ", req.version, "\n");
+        return false;
+    }
+    if !str_eq(http_headers_get(req.headers, "host", ""), "api.example.com") {
+        print("[FAIL] Request Host header mismatch\n");
+        return false;
+    }
+    if !str_eq(req.body, "{\"username\":\"gat\"}") {
+        print("[FAIL] Request body mismatch: ", req.body, "\n");
+        return false;
+    }
+
+    let jres = http_req_json(req);
+    if result_is_err(jres) {
+        print("[FAIL] Failed to parse request body as JSON\n");
+        return false;
+    }
+    let jval: JsonValue = result_unwrap(jres);
+    if !str_eq(json_get_str(jval, "username", ""), "gat") {
+        print("[FAIL] JSON parsed username mismatch\n");
+        return false;
+    }
+
+    print("  [PASS] HTTP request parsing passed\n");
+    return true;
+}
+
+fn test_response_parser() -> bool {
+    print("Testing HTTP response parsing & formatting...\n");
+
+    let original = http_resp_json(201, json_string("created successfully"));
+    http_headers_set(original.headers, "X-Request-Id", "req-987");
+
+    let wire = http_format_response(original);
+    let pres = http_parse_response(wire);
+    if result_is_err(pres) {
+        print("[FAIL] Failed to re-parse formatted HTTP response: ", result_unwrap_err(pres), "\n");
+        return false;
+    }
+
+    let resp: HttpResponse = result_unwrap(pres);
+    if resp.status_code != 201 {
+        print("[FAIL] Response status code mismatch: ", str_from_int(resp.status_code), "\n");
+        return false;
+    }
+    if !str_eq(resp.status_text, "Created") {
+        print("[FAIL] Response status text mismatch: ", resp.status_text, "\n");
+        return false;
+    }
+    if !str_eq(http_headers_get(resp.headers, "content-type", ""), "application/json") {
+        print("[FAIL] Content-Type mismatch\n");
+        return false;
+    }
+    if !str_eq(http_headers_get(resp.headers, "x-request-id", ""), "req-987") {
+        print("[FAIL] X-Request-Id header mismatch\n");
+        return false;
+    }
+    if !str_eq(resp.body, "\"created successfully\"") {
+        print("[FAIL] Response body mismatch: ", resp.body, "\n");
+        return false;
+    }
+
+    print("  [PASS] HTTP response parsing & formatting passed\n");
+    return true;
+}
+
+fn test_url_parser() -> bool {
+    print("Testing HTTP URL parsing...\n");
+
+    let u1_res = http_parse_url("http://127.0.0.1:8080/api/status?v=1");
+    if result_is_err(u1_res) {
+        print("[FAIL] Failed to parse URL with port & query\n");
+        return false;
+    }
+    let u1: HttpUrl = result_unwrap(u1_res);
+    if !str_eq(u1.host, "127.0.0.1") || u1.port != 8080 || !str_eq(u1.path, "/api/status?v=1") {
+        print("[FAIL] URL 1 mismatch\n");
+        return false;
+    }
+
+    let u2_res = http_parse_url("http://localhost/health");
+    if result_is_err(u2_res) {
+        print("[FAIL] Failed to parse localhost URL\n");
+        return false;
+    }
+    let u2: HttpUrl = result_unwrap(u2_res);
+    if !str_eq(u2.host, "127.0.0.1") || u2.port != 80 || !str_eq(u2.path, "/health") {
+        print("[FAIL] URL 2 mismatch\n");
+        return false;
+    }
+
+    print("  [PASS] HTTP URL parsing passed\n");
+    return true;
+}
+
+// ----------------------------------------------------------------------------
+// End-to-End Server & Client Integration Test
+// ----------------------------------------------------------------------------
+
+struct ServerWorkerArgs {
+    port: i64;
+    ready_flag: raw i64;
+    stop_flag: raw i64;
+}
+
+fn handle_health_route(req: HttpRequest) -> HttpResponse {
+    let obj = json_object();
+    json_set_str(obj, "status", "healthy");
+    json_set_int(obj, "uptime", 100);
+    return http_resp_json(200, obj);
+}
+
+fn handle_echo_route(req: HttpRequest) -> HttpResponse {
+    let jres = http_req_json(req);
+    if result_is_err(jres) {
+        return http_resp_bad_request("expected JSON body");
+    }
+    let body_json = result_unwrap(jres);
+    return http_resp_json(200, body_json);
+}
+
+fn handle_text_route(req: HttpRequest) -> HttpResponse {
+    return http_resp_ok("Hello from native Gat HTTP server!");
+}
+
+fn http_server_worker(args_ptr: raw ServerWorkerArgs) {
+    let router = http_router_new();
+    http_router_get(router, "/health", handle_health_route);
+    http_router_post(router, "/api/echo", handle_echo_route);
+    http_router_get(router, "/text", handle_text_route);
+
+    let tries: i64 = 0;
+    let server: HttpServer = nil;
+    while tries < 10 && server == nil {
+        let bind_res = http_server_bind("127.0.0.1", args_ptr.port, router);
+        if result_is_ok(bind_res) {
+            server = result_unwrap(bind_res);
+        } else {
+            args_ptr.port = args_ptr.port + 1;
+            tries = tries + 1;
+        }
+    }
+
+    if server == nil {
+        args_ptr.ready_flag[0] = 0 - 1;
+        return;
+    }
+
+    // Signal ready
+    args_ptr.ready_flag[0] = 1;
+
+    while args_ptr.stop_flag[0] == 0 {
+        http_server_handle_one(server);
+    }
+    http_server_stop(server);
+}
+
+fn test_client_server_e2e() -> bool {
+    print("Testing HTTP Client & Server end-to-end integration...\n");
+
+    let ready_buf: raw i64 = alloc_mem(8);
+    ready_buf[0] = 0;
+    let stop_buf: raw i64 = alloc_mem(8);
+    stop_buf[0] = 0;
+
+    let sargs = new ServerWorkerArgs {
+        port: 18888,
+        ready_flag: ready_buf,
+        stop_flag: stop_buf
+    };
+
+    let th = thread_spawn(http_server_worker, sargs);
+    if th == nil {
+        print("[FAIL] Failed to spawn HTTP server thread\n");
+        return false;
+    }
+
+    // Wait for server ready signal
+    while ready_buf[0] == 0 {
+        sleep(20);
+    }
+
+    if ready_buf[0] < 0 {
+        print("[FAIL] Server failed to bind\n");
+        return false;
+    }
+
+    let base_url = str_concat("http://127.0.0.1:", str_from_int(sargs.port));
+    print("  Server listening on ", base_url, "\n");
+
+    // 1. GET /health
+    let get_res = http_get(str_concat(base_url, "/health"));
+    if result_is_err(get_res) {
+        print("[FAIL] GET /health failed: ", result_unwrap_err(get_res), "\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    let resp1: HttpResponse = result_unwrap(get_res);
+    if resp1.status_code != 200 {
+        print("[FAIL] GET /health returned status ", str_from_int(resp1.status_code), "\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    let j1_res = http_resp_json_parsed(resp1);
+    if result_is_err(j1_res) {
+        print("[FAIL] Failed to parse /health JSON response\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    let j1: JsonValue = result_unwrap(j1_res);
+    if !str_eq(json_get_str(j1, "status", ""), "healthy") || json_get_int(j1, "uptime", 0) != 100 {
+        print("[FAIL] Health JSON payload mismatch\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    print("  [PASS] 1. GET /health verified\n");
+
+    // 2. POST /api/echo
+    let payload = json_object();
+    json_set_str(payload, "service", "gat-http");
+    json_set_int(payload, "request_id", 4242);
+    json_set_bool(payload, "ok", true);
+
+    let post_res = http_post_json(str_concat(base_url, "/api/echo"), payload);
+    if result_is_err(post_res) {
+        print("[FAIL] POST /api/echo failed: ", result_unwrap_err(post_res), "\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    let resp2: HttpResponse = result_unwrap(post_res);
+    if resp2.status_code != 200 {
+        print("[FAIL] POST /api/echo status mismatch: ", str_from_int(resp2.status_code), "\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    let j2_res = http_resp_json_parsed(resp2);
+    let j2: JsonValue = result_unwrap(j2_res);
+    if !str_eq(json_get_str(j2, "service", ""), "gat-http") ||
+       json_get_int(j2, "request_id", 0) != 4242 ||
+       !json_get_bool(j2, "ok", false) {
+        print("[FAIL] Echo JSON response mismatch\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    print("  [PASS] 2. POST /api/echo verified\n");
+
+    // 3. GET /text
+    let text_res = http_get(str_concat(base_url, "/text"));
+    if result_is_err(text_res) {
+        print("[FAIL] GET /text failed\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    let resp3: HttpResponse = result_unwrap(text_res);
+    if !str_eq(resp3.body, "Hello from native Gat HTTP server!") {
+        print("[FAIL] Plain text body mismatch: ", resp3.body, "\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    print("  [PASS] 3. GET /text verified\n");
+
+    // 4. GET /unknown-endpoint -> 404
+    let not_found_res = http_get(str_concat(base_url, "/unknown-endpoint"));
+    if result_is_err(not_found_res) {
+        print("[FAIL] GET 404 test failed\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    let resp4: HttpResponse = result_unwrap(not_found_res);
+    if resp4.status_code != 404 {
+        print("[FAIL] Unknown route did not return 404, got: ", str_from_int(resp4.status_code), "\n");
+        stop_buf[0] = 1;
+        return false;
+    }
+    print("  [PASS] 4. Route 404 fallback verified\n");
+
+    // Shutdown server
+    stop_buf[0] = 1;
+    // Send a final wake-up request to unblock accept loop
+    http_get(str_concat(base_url, "/health"));
+    thread_join(th);
+
+    free_mem(ready_buf);
+    free_mem(stop_buf);
+
+    print("  [PASS] HTTP Client/Server E2E integration test completed successfully\n");
+    return true;
+}
+
+fn main() -> i64 {
+    print("=== Gat Standard Library: HTTP 1.1 Test Suite ===\n");
+
+    if !test_headers() { return 1; }
+    if !test_request_parser() { return 1; }
+    if !test_response_parser() { return 1; }
+    if !test_url_parser() { return 1; }
+    if !test_client_server_e2e() { return 1; }
+
+    print("All HTTP 1.1 tests completed successfully!\n");
+    return 0;
+}

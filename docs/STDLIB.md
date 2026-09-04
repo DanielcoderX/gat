@@ -22,6 +22,7 @@ Comprehensive documentation of all built-in modules in the Gat Standard Library.
 7. [`std/process.gat` - Process & OS Utilities](#7-stdprocessgat---process--os-utilities)
 8. [`std/net.gat` - Sockets & TCP Networking](#8-stdnetgat---sockets--tcp-networking)
 9. [`std/json.gat` - JSON Parser, Serializer & Data Types](#9-stdjsongat---json-parser-serializer--data-types)
+10. [`std/http.gat` - HTTP 1.1 Client, Server & JSON Router](#10-stdhttpgat---http-11-client-server--json-router)
 
 ---
 
@@ -456,5 +457,103 @@ fn user_to_json(u: User) -> string {
 * `json_ser_kv_null(ser: JsonSerializer, key: string)`
 * `json_ser_finish(ser: JsonSerializer) -> string`
 
+---
 
+## 10. `std/http.gat` - HTTP 1.1 Client, Server & JSON Router
 
+Import: `import "std/http.gat";`
+
+Native HTTP 1.1 implementation providing request/response wire parsing, case-insensitive headers, route dispatching, REST API integration with `std/json.gat`, and HTTP client requests.
+
+### Header Management
+
+* `http_headers_new() -> HttpHeaders` - Creates a new empty header collection.
+* `http_headers_set(h: HttpHeaders, name: string, val: string)` - Sets a header (case-insensitive lookup, original casing preserved).
+* `http_headers_get(h: HttpHeaders, name: string, default_val: string) -> string` - Retrieves a header value.
+* `http_headers_has(h: HttpHeaders, name: string) -> bool` - Checks if header is present.
+* `http_headers_len(h: HttpHeaders) -> i64` - Returns number of headers.
+* `http_headers_name_at(h: HttpHeaders, idx: i64) -> string` - Returns original header name at index.
+
+### Request & Response Models
+
+#### `HttpRequest`
+* `req.method: string` - HTTP method in uppercase (`"GET"`, `"POST"`, etc.)
+* `req.path: string` - Normalized request path (e.g. `"/api/v1/users"`)
+* `req.query: string` - Query string if present (`"filter=active"`)
+* `req.version: string` - HTTP version (`"HTTP/1.1"`)
+* `req.headers: HttpHeaders` - Request headers
+* `req.body: string` - Raw request body payload
+* `http_req_json(req: HttpRequest) -> Result<JsonValue, string>` - Parses request body as JSON
+
+#### `HttpResponse`
+* `res.status_code: i64` - HTTP status code (`200`, `201`, `400`, `404`, `500`)
+* `res.status_text: string` - Status phrase (`"OK"`, `"Not Found"`, etc.)
+* `res.headers: HttpHeaders` - Response headers
+* `res.body: string` - Response body string
+* `http_resp_json_parsed(res: HttpResponse) -> Result<JsonValue, string>` - Parses response body as JSON
+
+### Response Helpers
+
+* `http_resp_ok(body: string) -> HttpResponse` - Returns 200 OK with plain text body.
+* `http_resp_json(status_code: i64, val: JsonValue) -> HttpResponse` - Returns JSON response with `Content-Type: application/json`.
+* `http_resp_text(status_code: i64, body: string) -> HttpResponse` - Returns formatted status and text body.
+* `http_resp_not_found() -> HttpResponse` - Returns standard 404 Not Found response.
+* `http_resp_bad_request(err_msg: string) -> HttpResponse` - Returns 400 Bad Request response.
+
+### HTTP Client
+
+* `http_get(url: string) -> Result<HttpResponse, string>` - Executes HTTP GET request.
+* `http_post_json(url: string, payload: JsonValue) -> Result<HttpResponse, string>` - Sends JSON payload via HTTP POST.
+* `http_post_text(url: string, body: string, content_type: string) -> Result<HttpResponse, string>` - Sends raw body with custom content type.
+* `http_request(method: string, url: string, headers: HttpHeaders, body: string) -> Result<HttpResponse, string>` - Full request dispatcher.
+
+### HTTP Router & Server
+
+```gat
+import "std/http.gat";
+import "std/json.gat";
+
+fn handle_status(req: HttpRequest) -> HttpResponse {
+    let obj = json_object();
+    json_set_str(obj, "status", "healthy");
+    return http_resp_json(200, obj);
+}
+
+fn handle_echo(req: HttpRequest) -> HttpResponse {
+    let parse_res = http_req_json(req);
+    if result_is_err(parse_res) {
+        return http_resp_bad_request("invalid JSON body");
+    }
+    let body = result_unwrap(parse_res);
+    return http_resp_json(200, body);
+}
+
+fn main() -> i64 {
+    let router = http_router_new();
+    http_router_get(router, "/api/status", handle_status);
+    http_router_post(router, "/api/echo", handle_echo);
+
+    let server_res = http_server_bind("127.0.0.1", 8080, router);
+    if result_is_err(server_res) {
+        print("Failed to bind server\n");
+        return 1;
+    }
+    let server = result_unwrap(server_res);
+    print("Server running on http://127.0.0.1:8080\n");
+
+    while server.is_running {
+        http_server_handle_one(server);
+    }
+    http_server_stop(server);
+    return 0;
+}
+```
+
+* `http_router_new() -> HttpRouter` - Creates a new router.
+* `http_router_get(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse)`
+* `http_router_post(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse)`
+* `http_router_put(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse)`
+* `http_router_delete(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse)`
+* `http_server_bind(ip: string, port: i64, router: HttpRouter) -> Result<HttpServer, string>`
+* `http_server_handle_one(server: HttpServer) -> bool` - Processes a single incoming connection.
+* `http_server_stop(server: HttpServer)` - Shuts down listener.

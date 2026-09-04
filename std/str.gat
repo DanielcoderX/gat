@@ -347,3 +347,22 @@ fn str_trim(s: string) -> string {
     }
     return "";
 }
+
+fn str_to_lower(s: string) -> string {
+    if s == nil { return ""; }
+    let len = str_len(s);
+    if len == 0 { return ""; }
+    let buf: raw i8 = alloc_mem(len + 1);
+    let i: i64 = 0;
+    while i < len {
+        let ch = str_char(s, i);
+        if ch >= 65 && ch <= 90 { // 'A' - 'Z'
+            buf[i] = ch + 32;
+        } else {
+            buf[i] = ch;
+        }
+        i = i + 1;
+    }
+    buf[len] = 0;
+    return buf;
+}

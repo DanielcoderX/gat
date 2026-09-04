@@ -20,6 +20,7 @@ Welcome to the **Gat** example gallery! This directory contains curated, beginne
 | 08 | [`08_word_count_cli.gat`](08_word_count_cli.gat) | Command line arguments (`get_cmd_arg`), file I/O, text traversal |
 | 09 | [`09_cross_platform.gat`](09_cross_platform.gat) | Cross-platform APIs, Windows PE32+ and Linux ELF64 target support |
 | 10 | [`10_tcp_echo.gat`](10_tcp_echo.gat) | Sockets & networking (`std/net.gat`), TCP server/client, RAII socket deinit |
+| 11 | [`11_rest_api_server.gat`](11_rest_api_server.gat) | HTTP 1.1 microservice (`std/http.gat`), JSON routing, REST API client/server |
 
 ---
 

@@ -47,7 +47,8 @@ $testCases = @(
     @{ Name = "Namespaced Modules & Imports"; File = "examples/test_modules.gat"; Args = @(); Expect = "Namespaced module imports and symbol resolution passed!"; ExpectedCode = 0 },
     @{ Name = "Package Manager & Dependency Fetcher"; File = "examples/test_pkg_fetch.gat"; Args = @(); Expect = "Gat package manager and dependency fetching tests passed!"; ExpectedCode = 0 },
     @{ Name = "Standard Library Sockets & Networking"; File = "examples/test_net.gat"; Args = @(); Expect = "All Socket & Networking tests completed successfully!"; ExpectedCode = 0 },
-    @{ Name = "JSON Parser & Serializer (std/json.gat)"; File = "examples/test_json.gat"; Args = @(); Expect = "All JSON parser & serializer tests completed successfully!"; ExpectedCode = 0 }
+    @{ Name = "JSON Parser & Serializer (std/json.gat)"; File = "examples/test_json.gat"; Args = @(); Expect = "All JSON parser & serializer tests completed successfully!"; ExpectedCode = 0 },
+    @{ Name = "HTTP 1.1 Client & Server (std/http.gat)"; File = "examples/test_http.gat"; Args = @(); Expect = "All HTTP 1.1 tests completed successfully!"; ExpectedCode = 0 }
 )
 
 $passed = 0
@@ -146,7 +147,8 @@ $linuxTests = @(
     @{ Name = "Linux Direct Syscall Suite"; File = "examples/test_linux_suite.gat"; Bin = "bin/test_linux_suite"; Expect = "ALL LINUX ELF64 TESTS PASSED SUCCESSFULLY" },
     @{ Name = "Linux Print & Interpolation"; File = "examples/test_linux_print.gat"; Bin = "bin/test_linux_print"; Expect = "ALL LINUX PRINT TESTS PASSED" },
     @{ Name = "Linux TCP Sockets & Networking"; File = "examples/test_net.gat"; Bin = "bin/test_net_linux"; Expect = "All Socket & Networking tests completed successfully!" },
-    @{ Name = "Linux JSON Parser & Serializer"; File = "examples/test_json.gat"; Bin = "bin/test_json_linux"; Expect = "All JSON parser & serializer tests completed successfully!" }
+    @{ Name = "Linux JSON Parser & Serializer"; File = "examples/test_json.gat"; Bin = "bin/test_json_linux"; Expect = "All JSON parser & serializer tests completed successfully!" },
+    @{ Name = "Linux HTTP 1.1 Client & Server"; File = "examples/test_http.gat"; Bin = "bin/test_http_linux"; Expect = "All HTTP 1.1 tests completed successfully!" }
 )
 
 $wslAvailable = $false

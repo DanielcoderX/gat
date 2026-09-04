@@ -1,0 +1,216 @@
+// ============================================================================
+// 11_rest_api_server.gat - HTTP 1.1 Microservice & REST API in Gat
+// ============================================================================
+//
+// Demonstrates building a complete REST API microservice with Gat standard libraries:
+// - `std/http.gat`: Native HTTP 1.1 request/response parser, router, and client
+// - `std/json.gat`: JSON object trees, file I/O persistence, and serialization
+// - `std/net.gat`: Cross-platform TCP socket primitives
+// - `std/thread.gat`: Multithreaded server execution
+//
+// Run this example:
+//   gat run examples/showcase/11_rest_api_server.gat
+//
+
+import "std/http.gat";
+import "std/json.gat";
+import "std/str.gat";
+import "std/fs.gat";
+import "std/result.gat";
+import "std/thread.gat";
+import "std/process.gat";
+
+struct ServerConfig {
+    port: i64;
+    ready: raw i64;
+    stop: raw i64;
+}
+
+fn init_todos_database(file_path: string) {
+    let arr = json_array();
+    let it1 = json_object();
+    json_set_int(it1, "id", 1);
+    json_set_str(it1, "title", "Learn Gat Syntax");
+    json_set_bool(it1, "completed", true);
+    json_arr_push(arr, it1);
+
+    let it2 = json_object();
+    json_set_int(it2, "id", 2);
+    json_set_str(it2, "title", "Build REST Microservice");
+    json_set_bool(it2, "completed", false);
+    json_arr_push(arr, it2);
+
+    json_write_file_pretty(file_path, arr, 2);
+}
+
+fn route_status(req: HttpRequest) -> HttpResponse {
+    let res_obj = json_object();
+    json_set_str(res_obj, "name", "Gat API Gateway");
+    json_set_str(res_obj, "version", "1.0.0");
+    json_set_str(res_obj, "status", "operational");
+
+    let count: i64 = 0;
+    let r = json_read_file("todos_db.json");
+    if result_is_ok(r) {
+        let arr: JsonValue = result_unwrap(r);
+        count = json_arr_len(arr);
+    }
+    json_set_int(res_obj, "total_todos", count);
+
+    return http_resp_json(200, res_obj);
+}
+
+fn route_get_items(req: HttpRequest) -> HttpResponse {
+    let r = json_read_file("todos_db.json");
+    if result_is_err(r) {
+        return http_resp_json(200, json_array());
+    }
+    let arr: JsonValue = result_unwrap(r);
+    return http_resp_json(200, arr);
+}
+
+fn route_add_item(req: HttpRequest) -> HttpResponse {
+    let parse_res = http_req_json(req);
+    if result_is_err(parse_res) {
+        return http_resp_bad_request("invalid JSON in request body");
+    }
+    let body: JsonValue = result_unwrap(parse_res);
+    let title = json_get_str(body, "title", "");
+    if str_len(title) == 0 {
+        return http_resp_bad_request("missing required 'title' field");
+    }
+
+    let arr = json_array();
+    let r = json_read_file("todos_db.json");
+    if result_is_ok(r) {
+        arr = result_unwrap(r);
+    }
+
+    let next_id = json_arr_len(arr) + 1;
+    let new_item = json_object();
+    json_set_int(new_item, "id", next_id);
+    json_set_str(new_item, "title", title);
+    json_set_bool(new_item, "completed", json_get_bool(body, "completed", false));
+
+    json_arr_push(arr, new_item);
+    json_write_file_pretty("todos_db.json", arr, 2);
+
+    return http_resp_json(201, new_item);
+}
+
+fn rest_server_worker(cfg_ptr: raw ServerConfig) {
+    init_todos_database("todos_db.json");
+
+    let router = http_router_new();
+    http_router_get(router, "/api/status", route_status);
+    http_router_get(router, "/api/items", route_get_items);
+    http_router_post(router, "/api/items", route_add_item);
+
+    let server_res = http_server_bind("127.0.0.1", cfg_ptr.port, router);
+    if result_is_err(server_res) {
+        cfg_ptr.ready[0] = 0 - 1;
+        return;
+    }
+    let server: HttpServer = result_unwrap(server_res);
+
+    cfg_ptr.ready[0] = 1;
+
+    while cfg_ptr.stop[0] == 0 {
+        http_server_handle_one(server);
+    }
+    http_server_stop(server);
+}
+
+fn main() -> i64 {
+    print("=== Gat Showcase: REST API Microservice ===\n\n");
+
+    let ready_buf: raw i64 = alloc_mem(8);
+    ready_buf[0] = 0;
+    let stop_buf: raw i64 = alloc_mem(8);
+    stop_buf[0] = 0;
+
+    let port = 19001;
+    let cfg = new ServerConfig {
+        port: port,
+        ready: ready_buf,
+        stop: stop_buf
+    };
+
+    let server_th = thread_spawn(rest_server_worker, cfg);
+    if server_th == nil {
+        print("[Error] Failed to spawn background HTTP server thread\n");
+        return 1;
+    }
+
+    while ready_buf[0] == 0 {
+        proc_sleep(20);
+    }
+
+    if ready_buf[0] < 0 {
+        print("[Error] HTTP server failed to bind port ", str_from_int(port), "\n");
+        return 1;
+    }
+
+    let base_url = str_concat("http://127.0.0.1:", str_from_int(port));
+    print("REST Microservice online at: ", base_url, "\n\n");
+
+    // 1. Check Service Status
+    print("[1] Querying GET /api/status...\n");
+    let status_res = http_get(str_concat(base_url, "/api/status"));
+    if result_is_ok(status_res) {
+        let resp: HttpResponse = result_unwrap(status_res);
+        let jres = http_resp_json_parsed(resp);
+        let jval: JsonValue = result_unwrap(jres);
+        print("    HTTP ", str_from_int(resp.status_code), " ", resp.status_text, "\n");
+        print(json_stringify_pretty(jval, 4), "\n\n");
+    }
+
+    // 2. Fetch Initial Items
+    print("[2] Querying GET /api/items...\n");
+    let items_res = http_get(str_concat(base_url, "/api/items"));
+    if result_is_ok(items_res) {
+        let resp: HttpResponse = result_unwrap(items_res);
+        let jres = http_resp_json_parsed(resp);
+        let jval: JsonValue = result_unwrap(jres);
+        print("    Initial Items (", str_from_int(json_arr_len(jval)), " total):\n");
+        print(json_stringify_pretty(jval, 4), "\n\n");
+    }
+
+    // 3. Create a New Item via POST
+    print("[3] Sending POST /api/items...\n");
+    let new_todo = json_object();
+    json_set_str(new_todo, "title", "Ship Gat 1.0 Release");
+    json_set_bool(new_todo, "completed", false);
+
+    let post_res = http_post_json(str_concat(base_url, "/api/items"), new_todo);
+    if result_is_ok(post_res) {
+        let resp: HttpResponse = result_unwrap(post_res);
+        let jres = http_resp_json_parsed(resp);
+        let jval: JsonValue = result_unwrap(jres);
+        print("    Created Item (HTTP ", str_from_int(resp.status_code), "):\n");
+        print(json_stringify_pretty(jval, 4), "\n\n");
+    }
+
+    // 4. Verify Updated Item List
+    print("[4] Querying updated GET /api/items...\n");
+    let updated_res = http_get(str_concat(base_url, "/api/items"));
+    if result_is_ok(updated_res) {
+        let resp: HttpResponse = result_unwrap(updated_res);
+        let jres = http_resp_json_parsed(resp);
+        let jval: JsonValue = result_unwrap(jres);
+        print("    Updated List (", str_from_int(json_arr_len(jval)), " total items):\n");
+        print(json_stringify_pretty(jval, 4), "\n\n");
+    }
+
+    // Clean Shutdown
+    stop_buf[0] = 1;
+    http_get(str_concat(base_url, "/api/status")); // unblock accept
+    thread_join(server_th);
+
+    free_mem(ready_buf);
+    free_mem(stop_buf);
+    fs_delete_file("todos_db.json");
+
+    print("=== Demo completed successfully! ===\n");
+    return 0;
+}
