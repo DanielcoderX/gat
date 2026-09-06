@@ -8,8 +8,8 @@
 
 fn main() -> i64 {
     let src_path = "";
-    let out_path = "output.o";
-    let target_backend: TargetBackend = target_get_macos_arm64();
+    let out_path = "output.exe";
+    let target_backend: TargetBackend = target_get_windows();
     let target_override = false;
     let is_check_only: i64 = 0;
 
@@ -55,6 +55,8 @@ fn main() -> i64 {
             if str_eq(out_path, "output.exe") {
                 out_path = "output.o";
             }
+        } else {
+            target_backend = target_get_windows();
         }
     }
 
