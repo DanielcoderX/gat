@@ -31,8 +31,8 @@ jobs:
         run: |
           & .\bin\gat.exe build src\compiler.gat -o bin\gatc-linux --target=linux
           & .\bin\gat.exe build cli\gat.gat -o bin\gat-linux --target=linux
-          & .\bin\gat.exe build src\compiler.gat -o bin\gatc-macos --target=macos-arm64
-          & .\bin\gat.exe build cli\gat.gat -o bin\gat-macos --target=macos-arm64
+          & .\bin\gat.exe build src\compiler.gat -o bin\gatc-macos.o --target=macos-arm64
+          & .\bin\gat.exe build cli\gat.gat -o bin\gat-macos.o --target=macos-arm64
 
       - name: Upload Linux Binaries
         uses: actions/upload-artifact@v4
@@ -42,13 +42,13 @@ jobs:
             bin/gat-linux
             bin/gatc-linux
 
-      - name: Upload macOS Binaries
+      - name: Upload macOS Objects
         uses: actions/upload-artifact@v4
         with:
           name: macos-binaries
           path: |
-            bin/gat-macos
-            bin/gatc-macos
+            bin/gat-macos.o
+            bin/gatc-macos.o
 
   test-linux:
     name: Verify Linux Native Direct Syscalls & Bootstrap
@@ -106,7 +106,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download macOS Binaries
+      - name: Download macOS Objects
         uses: actions/download-artifact@v4
         with:
           name: macos-binaries
@@ -114,8 +114,8 @@ jobs:
 
       - name: Verify macOS ARM64 Self-Hosting & Feature Suite
         run: |
-          mv bin/gat-macos bin/gat
-          mv bin/gatc-macos bin/gatc
+          clang bin/gatc-macos.o -o bin/gatc
+          clang bin/gat-macos.o -o bin/gat
           chmod +x bin/gatc bin/gat
           chmod +x test_macos.sh
           ./test_macos.sh

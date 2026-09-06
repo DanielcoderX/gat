@@ -76,9 +76,9 @@ jobs:
           & .\bin\gat.exe build src\compiler.gat -o bin\gatc-linux-arm64 --target=linux-arm64
           & .\bin\gat.exe build cli\gat.gat -o bin\gat-linux-arm64 --target=linux-arm64
 
-          # 4. Cross-Compile Native macOS ARM64 Binaries
-          & .\bin\gat.exe build src\compiler.gat -o bin\gatc-macos-arm64 --target=macos-arm64
-          & .\bin\gat.exe build cli\gat.gat -o bin\gat-macos-arm64 --target=macos-arm64
+          # 4. Cross-Compile Native macOS ARM64 Objects
+          & .\bin\gat.exe build src\compiler.gat -o bin\gatc-macos.o --target=macos-arm64
+          & .\bin\gat.exe build cli\gat.gat -o bin\gat-macos.o --target=macos-arm64
 
       - name: Package Release Archives
         shell: bash
@@ -110,10 +110,10 @@ jobs:
           cp -r std docs examples README.md LICENSE "${LINUX_ARM_PKG}/"
           tar -czvf "${DIST_DIR}/${LINUX_ARM_PKG}.tar.gz" "${LINUX_ARM_PKG}"
 
-          # Stage macOS ARM64 binaries for packaging
-          mkdir -p macos_bin
-          cp bin/gat-macos-arm64 macos_bin/gat
-          cp bin/gatc-macos-arm64 macos_bin/gatc
+          # Stage macOS ARM64 object files for linking on macOS runner
+          mkdir -p macos_obj
+          cp bin/gat-macos.o macos_obj/
+          cp bin/gatc-macos.o macos_obj/
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
@@ -122,11 +122,11 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-      - name: Upload macOS Seed Binaries
+      - name: Upload macOS Seed Objects
         uses: actions/upload-artifact@v4
         with:
-          name: macos-seed-binaries
-          path: macos_bin/*
+          name: macos-seed-objects
+          path: macos_obj/*
           if-no-files-found: error
 
   build-macos:
@@ -138,10 +138,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download macOS Seed Binaries
+      - name: Download macOS Seed Objects
         uses: actions/download-artifact@v4
         with:
-          name: macos-seed-binaries
+          name: macos-seed-objects
           path: bin
 
       - name: Determine Version
@@ -155,8 +155,10 @@ jobs:
           fi
           echo "version=${VER}" >> $GITHUB_OUTPUT
 
-      - name: Verify macOS ARM64 Self-Hosting & Feature Tests
+      - name: Link Seed Binaries and Verify macOS ARM64 Self-Hosting & Feature Tests
         run: |
+          clang bin/gatc-macos.o -o bin/gatc
+          clang bin/gat-macos.o -o bin/gat
           chmod +x bin/gatc bin/gat
           chmod +x test_macos.sh
           ./test_macos.sh
