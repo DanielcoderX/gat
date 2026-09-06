@@ -1,0 +1,338 @@
+// ============================================================================
+// src/arm64.gat - AArch64 (ARM64) 32-bit Machine Instruction Encoder
+// ============================================================================
+
+let A64_X0: i64 = 0;
+let A64_X1: i64 = 1;
+let A64_X2: i64 = 2;
+let A64_X3: i64 = 3;
+let A64_X4: i64 = 4;
+let A64_X5: i64 = 5;
+let A64_X6: i64 = 6;
+let A64_X7: i64 = 7;
+let A64_X8: i64 = 8;
+let A64_X9: i64 = 9;
+let A64_X10: i64 = 10;
+let A64_X11: i64 = 11;
+let A64_X12: i64 = 12;
+let A64_X13: i64 = 13;
+let A64_X14: i64 = 14;
+let A64_X15: i64 = 15;
+let A64_X16: i64 = 16;
+let A64_X17: i64 = 17;
+let A64_X18: i64 = 18;
+let A64_X19: i64 = 19;
+let A64_X20: i64 = 20;
+let A64_X21: i64 = 21;
+let A64_X22: i64 = 22;
+let A64_X23: i64 = 23;
+let A64_X24: i64 = 24;
+let A64_X25: i64 = 25;
+let A64_X26: i64 = 26;
+let A64_X27: i64 = 27;
+let A64_X28: i64 = 28;
+let A64_FP: i64 = 29;
+let A64_LR: i64 = 30;
+let A64_SP: i64 = 31;
+let A64_XZR: i64 = 31;
+
+let A64_COND_EQ: i64 = 0;
+let A64_COND_NE: i64 = 1;
+let A64_COND_CS: i64 = 2;
+let A64_COND_CC: i64 = 3;
+let A64_COND_GE: i64 = 10;
+let A64_COND_LT: i64 = 11;
+let A64_COND_GT: i64 = 12;
+let A64_COND_LE: i64 = 13;
+
+fn a64_emit(code: ByteBuffer, inst: i64) {
+    bb_write_u32(code, inst);
+}
+
+
+
+// MOV Xd, Xm (via ORR Xd, XZR, Xm)
+fn a64_mov_reg(code: ByteBuffer, rd: i64, rm: i64) {
+    if rd == rm { return; }
+    let inst: i64 = 2852127712 + (rm * 65536) + rd;
+    a64_emit(code, inst);
+}
+
+// MOVZ Xd, #imm16, LSL #(hw * 16)
+fn a64_movz(code: ByteBuffer, rd: i64, imm16: i64, hw: i64) {
+    let imm = imm16;
+    if imm < 0 { imm = imm + 65536; }
+    imm = imm % 65536;
+    let inst: i64 = 3531603968 + (hw * 2097152) + (imm * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// MOVK Xd, #imm16, LSL #(hw * 16)
+fn a64_movk(code: ByteBuffer, rd: i64, imm16: i64, hw: i64) {
+    let imm = imm16;
+    if imm < 0 { imm = imm + 65536; }
+    imm = imm % 65536;
+    let inst: i64 = 4068474880 + (hw * 2097152) + (imm * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// Materialize arbitrary 64-bit constant into Rd
+fn a64_mov_imm(code: ByteBuffer, rd: i64, val: i64) {
+    if val >= 0 && val <= 65535 {
+        a64_movz(code, rd, val, 0);
+        return;
+    }
+    let uval = val;
+    let is_neg = false;
+    if uval < 0 {
+        is_neg = true;
+    }
+
+    let p0 = uval % 65536;
+    if p0 < 0 { p0 = p0 + 65536; }
+    let rem1 = (uval - p0) / 65536;
+    let p1 = rem1 % 65536;
+    if p1 < 0 { p1 = p1 + 65536; }
+    let rem2 = (rem1 - p1) / 65536;
+    let p2 = rem2 % 65536;
+    if p2 < 0 { p2 = p2 + 65536; }
+    let rem3 = (rem2 - p2) / 65536;
+    let p3 = rem3 % 65536;
+    if p3 < 0 { p3 = p3 + 65536; }
+
+    a64_movz(code, rd, p0, 0);
+    if p1 != 0 || is_neg { a64_movk(code, rd, p1, 1); }
+    if p2 != 0 || is_neg { a64_movk(code, rd, p2, 2); }
+    if p3 != 0 || is_neg { a64_movk(code, rd, p3, 3); }
+}
+
+// ADD Xd, Xn, Xm
+fn a64_add_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 2332033024 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// ADD Xd, Xn, #imm12
+fn a64_add_imm(code: ByteBuffer, rd: i64, rn: i64, imm12: i64) {
+    let imm = imm12 % 4096;
+    let inst: i64 = 2432696320 + (imm * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// SUB Xd, Xn, Xm
+fn a64_sub_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 3405774848 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// SUB Xd, Xn, #imm12
+fn a64_sub_imm(code: ByteBuffer, rd: i64, rn: i64, imm12: i64) {
+    let imm = imm12 % 4096;
+    let inst: i64 = 3506438144 + (imm * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// SUB Xd|SP, Xn|SP, Xm (extended register, UXTX)
+fn a64_sub_sp_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 3407896576 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// ADD Xd|SP, Xn|SP, Xm (extended register, UXTX)
+fn a64_add_sp_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 2334154752 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// MUL Xd, Xn, Xm
+fn a64_mul_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 2600500224 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+
+// SDIV Xd, Xn, Xm
+fn a64_sdiv_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 2596277248 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// AND Xd, Xn, Xm
+fn a64_and_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 2315255808 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// ORR Xd, Xn, Xm
+fn a64_orr_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 2852126720 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// EOR Xd, Xn, Xm
+fn a64_eor_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 3388997632 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// LSLV Xd, Xn, Xm
+fn a64_lsl_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 2596282368 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// LSRV Xd, Xn, Xm
+fn a64_lsr_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 2596283392 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// ASRV Xd, Xn, Xm
+fn a64_asr_reg(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 2596284416 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// LDR Xd, [Xn, #pimm] (scaled by 8)
+fn a64_ldr_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
+    let scale = (offset / 8) % 4096;
+    let inst: i64 = 4181721088 + (scale * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// STR Xd, [Xn, #pimm] (scaled by 8)
+fn a64_str_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
+    let scale = (offset / 8) % 4096;
+    let inst: i64 = 4177526784 + (scale * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// LDR Xd, [Xn, Xm, LSL #3]
+fn a64_ldr_idx(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 4167071744 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// STR Xd, [Xn, Xm, LSL #3]
+fn a64_str_idx(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 4162877440 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+
+// LDRB Wd, [Xn, #pimm]
+fn a64_ldrb_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
+    let imm = offset % 4096;
+    let inst: i64 = 959447040 + (imm * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// STRB Wd, [Xn, #pimm]
+fn a64_strb_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
+    let imm = offset % 4096;
+    let inst: i64 = 956301312 + (imm * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// LDRB Wd, [Xn, Xm]
+fn a64_ldrb_idx(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 945842176 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+
+// STRB Wd, [Xn, Xm]
+fn a64_strb_idx(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
+    let inst: i64 = 941647872 + (rm * 65536) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// CMP Xn, Xm (SUBS XZR, Xn, Xm)
+fn a64_cmp_reg(code: ByteBuffer, rn: i64, rm: i64) {
+    let inst: i64 = 3942645791 + (rm * 65536) + (rn * 32);
+    a64_emit(code, inst);
+}
+
+// CMP Xn, #imm12 (SUBS XZR, Xn, #imm12)
+fn a64_cmp_imm(code: ByteBuffer, rn: i64, imm12: i64) {
+    let imm = imm12 % 4096;
+    let inst: i64 = 4043309087 + (imm * 1024) + (rn * 32);
+    a64_emit(code, inst);
+}
+
+// CSET Xd, cond (CSINC Xd, XZR, XZR, invert(cond))
+fn a64_cset(code: ByteBuffer, rd: i64, cond: i64) {
+    let inv_cond = cond;
+    if cond == A64_COND_EQ { inv_cond = A64_COND_NE; }
+    else if cond == A64_COND_NE { inv_cond = A64_COND_EQ; }
+    else if cond == A64_COND_GE { inv_cond = A64_COND_LT; }
+    else if cond == A64_COND_LT { inv_cond = A64_COND_GE; }
+    else if cond == A64_COND_GT { inv_cond = A64_COND_LE; }
+    else if cond == A64_COND_LE { inv_cond = A64_COND_GT; }
+    else if cond == A64_COND_CS { inv_cond = A64_COND_CC; }
+    else if cond == A64_COND_CC { inv_cond = A64_COND_CS; }
+
+    let inst: i64 = 2594113504 + (inv_cond * 4096) + rd;
+    a64_emit(code, inst);
+}
+
+// B offset_words (signed 26-bit)
+fn a64_b(code: ByteBuffer, offset_words: i64) {
+    let off = offset_words;
+    if off < 0 { off = off + 67108864; }
+    off = off % 67108864;
+    let inst: i64 = 335544320 + off;
+    a64_emit(code, inst);
+}
+
+// BL offset_words (signed 26-bit)
+fn a64_bl(code: ByteBuffer, offset_words: i64) {
+    let off = offset_words;
+    if off < 0 { off = off + 67108864; }
+    off = off % 67108864;
+    let inst: i64 = 2483027968 + off;
+    a64_emit(code, inst);
+}
+
+// BLR Xn
+fn a64_blr(code: ByteBuffer, rn: i64) {
+    let inst: i64 = 3594452992 + (rn * 32);
+    a64_emit(code, inst);
+}
+
+// B.cond offset_words (signed 19-bit)
+fn a64_b_cond(code: ByteBuffer, cond: i64, offset_words: i64) {
+    let off = offset_words;
+    if off < 0 { off = off + 524288; }
+    off = off % 524288;
+    let inst: i64 = 1409286144 + (off * 32) + cond;
+    a64_emit(code, inst);
+}
+
+// RET Xn (default LR / X30)
+fn a64_ret(code: ByteBuffer, rn: i64) {
+    let inst: i64 = 3596550144 + (rn * 32);
+    a64_emit(code, inst);
+}
+
+// SVC #0
+fn a64_svc(code: ByteBuffer) {
+    a64_emit(code, 3556769793);
+}
+
+// SVC #0x80 (Darwin / macOS Apple Silicon)
+fn a64_svc_darwin(code: ByteBuffer) {
+    a64_emit(code, 3556773889);
+}
+
+// ADRP Rd, imm21
+fn a64_adrp(code: ByteBuffer, rd: i64, imm21: i64) {
+    let immlo = imm21 % 4;
+    let immhi = (imm21 / 4) % 524288;
+    let inst: i64 = 2415919104 + (immlo * 536870912) + (immhi * 32) + rd;
+    a64_emit(code, inst);
+}
+
+
+
+

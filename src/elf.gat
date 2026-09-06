@@ -1,5 +1,5 @@
 // ============================================================================
-// src/elf.gat - Minimal Static ELF64 Executable Generator for Linux x86-64
+// src/elf.gat - Minimal Static ELF64 Executable Generator for Linux (x86-64 & AArch64)
 // ============================================================================
 
 // Build static ELF64 executable
@@ -49,6 +49,11 @@ fn elf_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> boo
     let code_file_off: i64 = page_size; // 0x1000
     let rdata_file_off: i64 = code_file_off + text_raw_size;
 
+    let is_aarch64 = false;
+    if cg != nil && cg.target != nil && (cg.target.target_id == 3 || cg.target.arch_id == ARCH_AARCH64) {
+        is_aarch64 = true;
+    }
+
     // Resolve Relocations
     let rel = cg.relocs_head;
     while rel != nil {
@@ -88,16 +93,82 @@ fn elf_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> boo
             }
         }
 
-        let from_vaddr = code_vaddr + rel.offset + 4;
-        let diff = target_vaddr - from_vaddr;
-        let u_diff = diff;
-        if u_diff < 0 {
-            u_diff = u_diff + 65536 * 65536;
+        if is_aarch64 {
+            if rel.kind == 1 {
+                // Branch/Call relocation (B, BL, B.cond)
+                let from_vaddr = code_vaddr + rel.offset;
+                let diff_words = (target_vaddr - from_vaddr) / 4;
+
+                let b0: i64 = p_code[rel.offset + 0];
+                if b0 < 0 { b0 = b0 + 256; }
+                let b3: i64 = p_code[rel.offset + 3];
+                if b3 < 0 { b3 = b3 + 256; }
+
+                if b3 == 84 { // 0x54: B.cond
+                    let cond = b0 % 16;
+                    let off19 = diff_words;
+                    if off19 < 0 { off19 = off19 + 524288; }
+                    off19 = off19 % 524288;
+                    let inst: i64 = 1409286144 + (off19 * 32) + cond;
+                    let u = inst;
+                    p_code[rel.offset + 0] = u % 256;
+                    p_code[rel.offset + 1] = (u / 256) % 256;
+                    p_code[rel.offset + 2] = (u / 65536) % 256;
+                    p_code[rel.offset + 3] = (u / 16777216) % 256;
+                } else { // B or BL
+                    let base_op = (b3 / 4) * 4;
+                    let off26 = diff_words;
+                    if off26 < 0 { off26 = off26 + 67108864; }
+                    off26 = off26 % 67108864;
+                    let inst: i64 = (base_op * 16777216) + off26;
+                    let u = inst;
+                    p_code[rel.offset + 0] = u % 256;
+                    p_code[rel.offset + 1] = (u / 256) % 256;
+                    p_code[rel.offset + 2] = (u / 65536) % 256;
+                    p_code[rel.offset + 3] = (u / 16777216) % 256;
+                }
+            } else if rel.kind == 3 {
+                // 64-bit MOVZ + MOVK + MOVK data address load (3 words = 12 bytes)
+                let b0 = p_code[rel.offset + 0];
+                if b0 < 0 { b0 = b0 + 256; }
+                let rd = b0 % 32;
+
+                let p0 = target_vaddr % 65536;
+                let rem1 = (target_vaddr - p0) / 65536;
+                let p1 = rem1 % 65536;
+                let rem2 = (rem1 - p1) / 65536;
+                let p2 = rem2 % 65536;
+
+                let i0: i64 = 3531603968 + (p0 * 32) + rd;
+                p_code[rel.offset + 0] = i0 % 256;
+                p_code[rel.offset + 1] = (i0 / 256) % 256;
+                p_code[rel.offset + 2] = (i0 / 65536) % 256;
+                p_code[rel.offset + 3] = (i0 / 16777216) % 256;
+
+                let i1: i64 = 4068474880 + 2097152 + (p1 * 32) + rd;
+                p_code[rel.offset + 4] = i1 % 256;
+                p_code[rel.offset + 5] = (i1 / 256) % 256;
+                p_code[rel.offset + 6] = (i1 / 65536) % 256;
+                p_code[rel.offset + 7] = (i1 / 16777216) % 256;
+
+                let i2: i64 = 4068474880 + 4194304 + (p2 * 32) + rd;
+                p_code[rel.offset + 8] = i2 % 256;
+                p_code[rel.offset + 9] = (i2 / 256) % 256;
+                p_code[rel.offset + 10] = (i2 / 65536) % 256;
+                p_code[rel.offset + 11] = (i2 / 16777216) % 256;
+            }
+        } else {
+            let from_vaddr = code_vaddr + rel.offset + 4;
+            let diff = target_vaddr - from_vaddr;
+            let u_diff = diff;
+            if u_diff < 0 {
+                u_diff = u_diff + 65536 * 65536;
+            }
+            p_code[rel.offset + 0] = u_diff;
+            p_code[rel.offset + 1] = u_diff / 256;
+            p_code[rel.offset + 2] = u_diff / 65536;
+            p_code[rel.offset + 3] = (u_diff / 65536) / 256;
         }
-        p_code[rel.offset + 0] = u_diff;
-        p_code[rel.offset + 1] = u_diff / 256;
-        p_code[rel.offset + 2] = u_diff / 65536;
-        p_code[rel.offset + 3] = (u_diff / 65536) / 256;
 
         rel = rel.next;
     }
@@ -125,19 +196,24 @@ fn elf_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> boo
     bb_write_u8(out_buf, 0);    // ELFOSABI_NONE / System V
     bb_write_zeros(out_buf, 8); // e_ident padding
 
-    bb_write_u16(out_buf, 2);      // e_type = ET_EXEC
-    bb_write_u16(out_buf, 0x3E);   // e_machine = EM_X86_64 (62)
-    bb_write_u32(out_buf, 1);      // e_version = EV_CURRENT
-    bb_write_u64(out_buf, entry_vaddr); // e_entry
-    bb_write_u64(out_buf, 64);     // e_phoff (immediately follows Ehdr)
-    bb_write_u64(out_buf, 0);      // e_shoff (no section headers)
-    bb_write_u32(out_buf, 0);      // e_flags
-    bb_write_u16(out_buf, 64);     // e_ehsize
-    bb_write_u16(out_buf, 56);     // e_phentsize (Elf64_Phdr size)
-    bb_write_u16(out_buf, 2);      // e_phnum (2 load segments: RX code, RW data)
-    bb_write_u16(out_buf, 0);      // e_shentsize
-    bb_write_u16(out_buf, 0);      // e_shnum
-    bb_write_u16(out_buf, 0);      // e_shstrndx
+    let e_machine: i64 = 62; // EM_X86_64
+    if is_aarch64 {
+        e_machine = 183; // EM_AARCH64 (0xB7)
+    }
+
+    bb_write_u16(out_buf, 2);          // e_type = ET_EXEC
+    bb_write_u16(out_buf, e_machine);  // e_machine
+    bb_write_u32(out_buf, 1);          // e_version = EV_CURRENT
+    bb_write_u64(out_buf, entry_vaddr);// e_entry
+    bb_write_u64(out_buf, 64);         // e_phoff (immediately follows Ehdr)
+    bb_write_u64(out_buf, 0);          // e_shoff (no section headers)
+    bb_write_u32(out_buf, 0);          // e_flags
+    bb_write_u16(out_buf, 64);         // e_ehsize
+    bb_write_u16(out_buf, 56);         // e_phentsize (Elf64_Phdr size)
+    bb_write_u16(out_buf, 2);          // e_phnum (2 load segments: RX code, RW data)
+    bb_write_u16(out_buf, 0);          // e_shentsize
+    bb_write_u16(out_buf, 0);          // e_shnum
+    bb_write_u16(out_buf, 0);          // e_shstrndx
 
     // --- Program Header 1: RX Segment (Headers + Code) ---
     bb_write_u32(out_buf, 1);      // p_type = PT_LOAD

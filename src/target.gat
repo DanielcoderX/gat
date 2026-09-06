@@ -4,6 +4,15 @@
 
 let TARGET_WINDOWS: i64 = 1;
 let TARGET_LINUX: i64 = 2;
+let TARGET_LINUX_ARM64: i64 = 3;
+let TARGET_MACOS_ARM64: i64 = 4;
+
+let ARCH_X86_64: i64 = 1;
+let ARCH_AARCH64: i64 = 2;
+
+let OS_WINDOWS: i64 = 1;
+let OS_LINUX: i64 = 2;
+let OS_MACOS: i64 = 3;
 
 fn str_starts_with_prefix(s: string, prefix: string) -> bool {
     if s == nil || prefix == nil { return false; }
@@ -22,6 +31,8 @@ fn str_starts_with_prefix(s: string, prefix: string) -> bool {
 
 class TargetBackend {
     target_id: i64;
+    arch_id: i64;
+    os_id: i64;
     name: string;
     shadow_space: i64;
     max_reg_args: i64;
@@ -31,11 +42,15 @@ class TargetBackend {
     arg_reg4: i64;
     arg_reg5: i64;
     arg_reg6: i64;
+    arg_reg7: i64;
+    arg_reg8: i64;
 }
 
 fn target_get_windows() -> TargetBackend {
     return new TargetBackend {
         target_id: 1,
+        arch_id: 1,
+        os_id: 1,
         name: "windows",
         shadow_space: 32,
         max_reg_args: 4,
@@ -44,13 +59,17 @@ fn target_get_windows() -> TargetBackend {
         arg_reg3: 4, // R8
         arg_reg4: 5, // R9
         arg_reg5: 0, // stack
-        arg_reg6: 0  // stack
+        arg_reg6: 0, // stack
+        arg_reg7: 0,
+        arg_reg8: 0
     };
 }
 
 fn target_get_linux() -> TargetBackend {
     return new TargetBackend {
         target_id: 2,
+        arch_id: 1,
+        os_id: 2,
         name: "linux",
         shadow_space: 0,
         max_reg_args: 6,
@@ -59,13 +78,74 @@ fn target_get_linux() -> TargetBackend {
         arg_reg3: 2, // RDX
         arg_reg4: 1, // RCX
         arg_reg5: 4, // R8
-        arg_reg6: 5  // R9
+        arg_reg6: 5, // R9
+        arg_reg7: 0,
+        arg_reg8: 0
+    };
+}
+
+fn target_get_linux_arm64() -> TargetBackend {
+    return new TargetBackend {
+        target_id: 3,
+        arch_id: 2,
+        os_id: 2,
+        name: "linux-arm64",
+        shadow_space: 0,
+        max_reg_args: 8,
+        arg_reg1: 0, // X0
+        arg_reg2: 1, // X1
+        arg_reg3: 2, // X2
+        arg_reg4: 3, // X3
+        arg_reg5: 4, // X4
+        arg_reg6: 5, // X5
+        arg_reg7: 6, // X6
+        arg_reg8: 7  // X7
+    };
+}
+
+fn target_get_macos_arm64() -> TargetBackend {
+    return new TargetBackend {
+        target_id: 4,
+        arch_id: 2,
+        os_id: 3,
+        name: "macos-arm64",
+        shadow_space: 0,
+        max_reg_args: 8,
+        arg_reg1: 0, // X0
+        arg_reg2: 1, // X1
+        arg_reg3: 2, // X2
+        arg_reg4: 3, // X3
+        arg_reg5: 4, // X4
+        arg_reg6: 5, // X5
+        arg_reg7: 6, // X6
+        arg_reg8: 7  // X7
     };
 }
 
 fn target_from_name(name: string) -> TargetBackend {
+    if str_eq(name, "macos-arm64") || str_eq(name, "macos") || str_eq(name, "darwin") || str_eq(name, "darwin-arm64") || str_eq(name, "macho-arm64") || str_eq(name, "apple-arm64") {
+        return target_get_macos_arm64();
+    }
+    if str_eq(name, "linux-arm64") || str_eq(name, "aarch64-linux") || str_eq(name, "arm64") || str_eq(name, "aarch64") {
+        return target_get_linux_arm64();
+    }
     if str_eq(name, "linux") || str_eq(name, "elf") || str_eq(name, "x86_64-linux") {
         return target_get_linux();
     }
     return target_get_windows();
+}
+
+fn target_is_macos(t: TargetBackend) -> bool {
+    if t == nil { return false; }
+    return t.os_id == 3;
+}
+
+fn target_is_arm64(t: TargetBackend) -> bool {
+    if t == nil { return false; }
+    return t.arch_id == 2;
+}
+
+fn target_is_linux(t: TargetBackend) -> bool {
+    if t == nil { return false; }
+    return t.os_id == 2;
 }

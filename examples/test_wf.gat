@@ -1,0 +1,6 @@
+fn main() -> i64 {
+    let s = "hello world\n";
+    let w = write_file("test_out.txt", s, 12);
+    print("written: ", w, "\n");
+    return 0;
+}

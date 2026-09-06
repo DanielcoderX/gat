@@ -84,3 +84,18 @@ jobs:
           chmod +x gatc-gen3
           cmp gatc-gen2 gatc-gen3
           echo "Native Linux 3-stage bitwise identity verified: 100% exact match!"
+
+  test-macos:
+    name: Verify macOS ARM64 Native Mach-O & Bootstrap
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify macOS ARM64 Self-Hosting & Feature Suite
+        run: |
+          chmod +x bin/gatc bin/gat
+          chmod +x test_macos.sh
+          ./test_macos.sh
+

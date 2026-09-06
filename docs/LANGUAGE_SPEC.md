@@ -9,7 +9,7 @@ permalink: /LANGUAGE_SPEC.html
 # Gat Language Specification
 
 **Version:** 0.4.0  
-**Target:** x86-64 Native (Windows PE32+ via IAT, Linux ELF64 via Direct Kernel Syscalls)  
+**Target:** Native 64-bit (macOS Mach-O Apple Silicon ARM64, Linux ELF64 x86-64 & ARM64, Windows PE32+ x86-64)  
 **Memory Model:** Automatic Reference Counting (ARC)
 
 ---

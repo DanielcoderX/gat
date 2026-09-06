@@ -37,7 +37,7 @@ fn cg_is_linux(cg: CodeGen) -> bool {
     if cg == nil { return false; }
     let t = cg.target;
     if t == nil { return false; }
-    if t.target_id == 2 { return true; }
+    if t.target_id == 2 || t.target_id == 3 { return true; }
     return false;
 }
 

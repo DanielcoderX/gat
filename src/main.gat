@@ -7,18 +7,14 @@
 // ----------------------------------------------------------------------------
 
 fn main() -> i64 {
-    let src_path = get_cmd_arg(1);
-    if str_len(src_path) == 0 {
-        print("Usage: gatc <source.gat> -o <output.exe>\n");
-        return 1;
-    }
-
-    let out_path = "output.exe";
-    let target_backend = target_get_windows();
+    let src_path = "";
+    let out_path = "output.o";
+    let target_backend: TargetBackend = target_get_macos_arm64();
+    let target_override = false;
     let is_check_only: i64 = 0;
 
-    let arg_idx: i64 = 2;
-    while arg_idx <= 6 {
+    let arg_idx: i64 = 1;
+    while arg_idx <= 8 {
         let arg = get_cmd_arg(arg_idx);
         if str_len(arg) > 0 {
             if str_eq(arg, "-o") {
@@ -29,19 +25,40 @@ fn main() -> i64 {
                 }
             } else if str_eq(arg, "--check") || str_eq(arg, "-c") {
                 is_check_only = 1;
-            } else if str_eq(arg, "--target") {
+            } else if str_eq(arg, "--target") || str_eq(arg, "-t") {
                 arg_idx = arg_idx + 1;
                 let next_target = get_cmd_arg(arg_idx);
                 if str_len(next_target) > 0 {
                     target_backend = target_from_name(next_target);
+                    target_override = true;
                 }
             } else if str_starts_with_prefix(arg, "--target=") {
                 let t_name = str_sub(arg, 9, str_len(arg) - 9);
                 target_backend = target_from_name(t_name);
+                target_override = true;
+            } else if str_len(src_path) == 0 && str_starts_with_prefix(arg, "-") == false {
+                src_path = arg;
             }
         }
         arg_idx = arg_idx + 1;
     }
+
+    if str_len(src_path) == 0 {
+        print("Usage: gatc <source.gat> -o <output.exe>\n");
+        return 1;
+    }
+
+    if target_override == false {
+        let tdir = get_temp_dir();
+        if str_starts_with_prefix(tdir, "/") {
+            target_backend = target_get_macos_arm64();
+            if str_eq(out_path, "output.exe") {
+                out_path = "output.o";
+            }
+        }
+    }
+
+    print("[gatc] target: ", target_backend.name, " out: ", out_path, " override: ", target_override, "\n");
 
     let src = read_file(src_path);
     if str_len(src) == 0 {
@@ -88,16 +105,29 @@ fn main() -> i64 {
     ir_build_program(ir_ctx, prog);
     opt_optimize_program(ir_ctx);
 
-    let cg = cg_new_target(target_backend);
-    cg_emit_runtime(cg);
+    let is_aarch64 = target_is_arm64(target_backend);
+
+    let cg: CodeGen = cg_new_target(target_backend);
+    if is_aarch64 {
+        cg_arm64_emit_runtime(cg);
+    } else {
+        cg_emit_runtime(cg);
+    }
+
     let fn_cur = ir_ctx.funcs_head;
     while fn_cur != nil {
-        cg_emit_function(cg, fn_cur);
+        if is_aarch64 {
+            cg_arm64_emit_function(cg, fn_cur);
+        } else {
+            cg_emit_function(cg, fn_cur);
+        }
         fn_cur = fn_cur.next;
     }
 
     let success = false;
-    if cg_is_linux(cg) {
+    if target_is_macos(target_backend) {
+        success = macho_build_executable(ir_ctx, cg, out_path);
+    } else if target_is_linux(target_backend) {
         success = elf_build_executable(ir_ctx, cg, out_path);
     } else {
         success = pe_build_executable(ir_ctx, cg, out_path);

@@ -1,0 +1,391 @@
+// ============================================================================
+// src/macho.gat - Minimal 64-bit Mach-O Object Generator for macOS (Apple Silicon ARM64)
+// ============================================================================
+
+fn macho_find_str_sym_idx(ctx: IRContext, label: string) -> i64 {
+    let sc = ctx.strings_head;
+    let idx: i64 = 7;
+    while sc != nil {
+        if str_eq(sc.label, label) {
+            return idx;
+        }
+        idx = idx + 1;
+        sc = sc.next;
+    }
+    return 0;
+}
+
+fn bb_write_fixed_str_16(buf: ByteBuffer, s: string) {
+    let slen = str_len(s);
+    bb_write_str(buf, s);
+    let rem = 16 - slen;
+    while rem > 0 {
+        bb_write_u8(buf, 0);
+        rem = rem - 1;
+    }
+}
+
+fn macho_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool {
+    let out_buf = bb_new(16384);
+    let rdata = bb_new(4096);
+
+    // 1. Build .rdata payload (string constants & static globals)
+    let rdata_argc_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_argc
+
+    let rdata_argv_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_argv
+
+    let rdata_net_state_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_net_state
+
+    let rdata_str_true_off = rdata.size;
+    bb_write_str(rdata, "true"); bb_write_u8(rdata, 0);
+
+    let rdata_str_false_off = rdata.size;
+    bb_write_str(rdata, "false"); bb_write_u8(rdata, 0);
+
+    let rdata_str_empty_off = rdata.size;
+    bb_write_str(rdata, ""); bb_write_u8(rdata, 0);
+
+    let sc = ir_ctx.strings_head;
+    while sc != nil {
+        sc.rdata_offset = rdata.size;
+        bb_write_str(rdata, sc.val);
+        bb_write_u8(rdata, 0);
+        sc = sc.next;
+    }
+    bb_align_up(rdata, 8);
+
+    // 2. Resolve internal calls and branches within __text
+    let p_code: raw i8 = cg.code.data;
+    let rel = cg.relocs_head;
+    while rel != nil {
+        if rel.kind == 1 {
+            let sym_cur = cg.syms_head;
+            let target_offset: i64 = -1;
+            while sym_cur != nil {
+                if str_eq(sym_cur.name, rel.sym) {
+                    target_offset = sym_cur.offset;
+                }
+                sym_cur = sym_cur.next;
+            }
+
+            if target_offset >= 0 {
+                let from_offset = rel.offset;
+                let diff_words = (target_offset - from_offset) / 4;
+                let b0: i64 = p_code[rel.offset + 0];
+                if b0 < 0 { b0 = b0 + 256; }
+                let b3: i64 = p_code[rel.offset + 3];
+                if b3 < 0 { b3 = b3 + 256; }
+
+                if b3 == 84 { // 0x54: B.cond
+                    let cond = b0 % 16;
+                    let off19 = diff_words;
+                    if off19 < 0 { off19 = off19 + 524288; }
+                    off19 = off19 % 524288;
+                    let inst: i64 = 1409286144 + (off19 * 32) + cond;
+                    let u = inst;
+                    p_code[rel.offset + 0] = u % 256;
+                    p_code[rel.offset + 1] = (u / 256) % 256;
+                    p_code[rel.offset + 2] = (u / 65536) % 256;
+                    p_code[rel.offset + 3] = (u / 16777216) % 256;
+                } else { // B or BL
+                    let base_op = (b3 / 4) * 4;
+                    let off26 = diff_words;
+                    if off26 < 0 { off26 = off26 + 67108864; }
+                    off26 = off26 % 67108864;
+                    let inst: i64 = (base_op * 16777216) + off26;
+                    let u = inst;
+                    p_code[rel.offset + 0] = u % 256;
+                    p_code[rel.offset + 1] = (u / 256) % 256;
+                    p_code[rel.offset + 2] = (u / 65536) % 256;
+                    p_code[rel.offset + 3] = (u / 16777216) % 256;
+                }
+            }
+        }
+        rel = rel.next;
+    }
+
+    // 3. String Table
+    let strtab = bb_new(4096);
+    bb_write_u8(strtab, 0); // initial null byte
+
+    let strx_main = strtab.size;
+    bb_write_str(strtab, "_main"); bb_write_u8(strtab, 0);
+
+    let strx_argc = strtab.size;
+    bb_write_str(strtab, "_gat_argc"); bb_write_u8(strtab, 0);
+
+    let strx_argv = strtab.size;
+    bb_write_str(strtab, "_gat_argv"); bb_write_u8(strtab, 0);
+
+    let strx_net = strtab.size;
+    bb_write_str(strtab, "_gat_net_state"); bb_write_u8(strtab, 0);
+
+    let strx_true = strtab.size;
+    bb_write_str(strtab, "str_true_const"); bb_write_u8(strtab, 0);
+
+    let strx_false = strtab.size;
+    bb_write_str(strtab, "str_false_const"); bb_write_u8(strtab, 0);
+
+    let strx_empty = strtab.size;
+    bb_write_str(strtab, "str_empty_const"); bb_write_u8(strtab, 0);
+
+    let sc_strx_start = strtab.size;
+    let sc_walk = ir_ctx.strings_head;
+    while sc_walk != nil {
+        bb_write_str(strtab, sc_walk.label);
+        bb_write_u8(strtab, 0);
+        sc_walk = sc_walk.next;
+    }
+
+    // 4. Build Mach-O Relocations (for kind 3 data references)
+    let reloc_buf = bb_new(2048);
+    let rel_data = cg.relocs_head;
+    while rel_data != nil {
+        if rel_data.kind == 3 {
+            let sym_idx: i64 = 0;
+            if str_eq(rel_data.sym, "_gat_argc") { sym_idx = 1; }
+            else if str_eq(rel_data.sym, "_gat_argv") { sym_idx = 2; }
+            else if str_eq(rel_data.sym, "_gat_net_state") { sym_idx = 3; }
+            else if str_eq(rel_data.sym, "str_true_const") { sym_idx = 4; }
+            else if str_eq(rel_data.sym, "str_false_const") { sym_idx = 5; }
+            else if str_eq(rel_data.sym, "str_empty_const") { sym_idx = 6; }
+            else {
+                sym_idx = macho_find_str_sym_idx(ir_ctx, rel_data.sym);
+            }
+
+            // Mach-O ARM64 relocations: PAGEOFF12 at rel.offset + 4, PAGE21 at rel.offset
+            // 1275068416 = (4 << 28) | (1 << 27) | (2 << 25)
+            bb_write_u32(reloc_buf, rel_data.offset + 4);
+            bb_write_u32(reloc_buf, 1275068416 + sym_idx);
+            // 1023410176 = (3 << 28) | (1 << 27) | (2 << 25) | (1 << 24)
+            bb_write_u32(reloc_buf, rel_data.offset);
+            bb_write_u32(reloc_buf, 1023410176 + sym_idx);
+        }
+        rel_data = rel_data.next;
+    }
+    let nreloc = reloc_buf.size / 8;
+
+    // 5. Symbol Table
+    let text_size = cg.code.size;
+    let text_size_aligned = align_val(text_size, 8);
+    let rdata_size = rdata.size;
+    let rdata_size_aligned = align_val(rdata_size, 8);
+
+    let nsyms: i64 = 7 + ir_ctx.string_count;
+    let symtab_buf = bb_new(nsyms * 16);
+
+    // Sym 0: _main
+    bb_write_u32(symtab_buf, strx_main);
+    bb_write_u8(symtab_buf, 15); // N_SECT (0x0e) | N_EXT (0x01)
+    bb_write_u8(symtab_buf, 1);  // section 1 (__text)
+    bb_write_u16(symtab_buf, 0); // n_desc
+    bb_write_u64(symtab_buf, 0); // n_value (offset 0 in __text)
+
+    // Sym 1: _gat_argc
+    bb_write_u32(symtab_buf, strx_argc);
+    bb_write_u8(symtab_buf, 15);
+    bb_write_u8(symtab_buf, 2);  // section 2 (__data)
+    bb_write_u16(symtab_buf, 0);
+    bb_write_u64(symtab_buf, text_size_aligned + rdata_argc_off);
+
+    // Sym 2: _gat_argv
+    bb_write_u32(symtab_buf, strx_argv);
+    bb_write_u8(symtab_buf, 15);
+    bb_write_u8(symtab_buf, 2);
+    bb_write_u16(symtab_buf, 0);
+    bb_write_u64(symtab_buf, text_size_aligned + rdata_argv_off);
+
+    // Sym 3: _gat_net_state
+    bb_write_u32(symtab_buf, strx_net);
+    bb_write_u8(symtab_buf, 15);
+    bb_write_u8(symtab_buf, 2);
+    bb_write_u16(symtab_buf, 0);
+    bb_write_u64(symtab_buf, text_size_aligned + rdata_net_state_off);
+
+    // Sym 4: str_true_const
+    bb_write_u32(symtab_buf, strx_true);
+    bb_write_u8(symtab_buf, 15);
+    bb_write_u8(symtab_buf, 2);
+    bb_write_u16(symtab_buf, 0);
+    bb_write_u64(symtab_buf, text_size_aligned + rdata_str_true_off);
+
+    // Sym 5: str_false_const
+    bb_write_u32(symtab_buf, strx_false);
+    bb_write_u8(symtab_buf, 15);
+    bb_write_u8(symtab_buf, 2);
+    bb_write_u16(symtab_buf, 0);
+    bb_write_u64(symtab_buf, text_size_aligned + rdata_str_false_off);
+
+    // Sym 6: str_empty_const
+    bb_write_u32(symtab_buf, strx_empty);
+    bb_write_u8(symtab_buf, 15);
+    bb_write_u8(symtab_buf, 2);
+    bb_write_u16(symtab_buf, 0);
+    bb_write_u64(symtab_buf, text_size_aligned + rdata_str_empty_off);
+
+    // User string constants
+    let cur_strx = sc_strx_start;
+    let sc_sym = ir_ctx.strings_head;
+    while sc_sym != nil {
+        bb_write_u32(symtab_buf, cur_strx);
+        bb_write_u8(symtab_buf, 15);
+        bb_write_u8(symtab_buf, 2);
+        bb_write_u16(symtab_buf, 0);
+        bb_write_u64(symtab_buf, text_size_aligned + sc_sym.rdata_offset);
+
+        cur_strx = cur_strx + str_len(sc_sym.label) + 1;
+        sc_sym = sc_sym.next;
+    }
+
+    // 6. Layout Calculations
+    let header_size: i64 = 32;
+    let seg_cmd_size: i64 = 72 + (2 * 80); // 232
+    let bld_cmd_size: i64 = 24;
+    let sym_cmd_size: i64 = 24;
+    let sizeofcmds = seg_cmd_size + bld_cmd_size + sym_cmd_size; // 280
+
+    let text_file_off = header_size + sizeofcmds; // 312
+    let rdata_file_off = text_file_off + text_size_aligned;
+    let reloc_file_off = rdata_file_off + rdata_size_aligned;
+    let reloc_size_aligned = align_val(reloc_buf.size, 8);
+    let sym_file_off = reloc_file_off + reloc_size_aligned;
+    let sym_size_aligned = align_val(symtab_buf.size, 8);
+    let str_file_off = sym_file_off + sym_size_aligned;
+    let str_size = strtab.size;
+
+    // 7. Write Mach-O Header (32 bytes)
+    bb_write_u32(out_buf, 4277009103); // 0xfeedfacf (MH_MAGIC_64)
+    bb_write_u32(out_buf, 16777228);   // 0x0100000c (CPU_TYPE_ARM64)
+    bb_write_u32(out_buf, 0);          // cpusubtype
+    bb_write_u32(out_buf, 1);          // filetype: MH_OBJECT (1)
+    bb_write_u32(out_buf, 3);          // ncmds: 3
+    bb_write_u32(out_buf, sizeofcmds); // sizeofcmds: 280
+    bb_write_u32(out_buf, 0);          // flags
+    bb_write_u32(out_buf, 0);          // reserved
+
+    // LC_SEGMENT_64 (232 bytes)
+    bb_write_u32(out_buf, 25);         // cmd: 0x19 (LC_SEGMENT_64)
+    bb_write_u32(out_buf, seg_cmd_size);
+    bb_write_u64(out_buf, 0);          // segname (16 bytes empty)
+    bb_write_u64(out_buf, 0);
+    bb_write_u64(out_buf, 0);          // vmaddr
+    bb_write_u64(out_buf, text_size_aligned + rdata_size); // vmsize
+    bb_write_u64(out_buf, text_file_off);                  // fileoff
+    bb_write_u64(out_buf, text_size_aligned + rdata_size); // filesize
+    bb_write_u32(out_buf, 7);          // maxprot (RWX)
+    bb_write_u32(out_buf, 7);          // initprot (RWX)
+    bb_write_u32(out_buf, 2);          // nsects: 2
+    bb_write_u32(out_buf, 0);          // flags
+
+    // Section 1: __text
+    bb_write_fixed_str_16(out_buf, "__text");
+    bb_write_fixed_str_16(out_buf, "__TEXT");
+    bb_write_u64(out_buf, 0);          // addr
+    bb_write_u64(out_buf, text_size);  // size
+    bb_write_u32(out_buf, text_file_off); // offset
+    bb_write_u32(out_buf, 2);          // align: 2^2 = 4
+    bb_write_u32(out_buf, reloc_file_off); // reloff
+    bb_write_u32(out_buf, nreloc);     // nreloc
+    bb_write_u32(out_buf, 2147484672); // flags: 0x80000400 (S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS)
+    bb_write_u32(out_buf, 0);          // reserved1
+    bb_write_u32(out_buf, 0);          // reserved2
+    bb_write_u32(out_buf, 0);          // reserved3
+
+    // Section 2: __data
+    bb_write_fixed_str_16(out_buf, "__data");
+    bb_write_fixed_str_16(out_buf, "__DATA");
+    bb_write_u64(out_buf, text_size_aligned); // addr
+    bb_write_u64(out_buf, rdata_size);        // size
+    bb_write_u32(out_buf, rdata_file_off);    // offset
+    bb_write_u32(out_buf, 3);                 // align: 2^3 = 8
+    bb_write_u32(out_buf, 0);                 // reloff
+    bb_write_u32(out_buf, 0);                 // nreloc
+    bb_write_u32(out_buf, 0);                 // flags
+    bb_write_u32(out_buf, 0);                 // reserved1
+    bb_write_u32(out_buf, 0);                 // reserved2
+    bb_write_u32(out_buf, 0);                 // reserved3
+
+    // LC_BUILD_VERSION (24 bytes)
+    bb_write_u32(out_buf, 50);         // cmd: 0x32 (LC_BUILD_VERSION)
+    bb_write_u32(out_buf, bld_cmd_size);
+    bb_write_u32(out_buf, 1);          // platform: 1 (PLATFORM_MACOS)
+    bb_write_u32(out_buf, 917504);     // minos: 14.0.0 (14 << 16)
+    bb_write_u32(out_buf, 917504);     // sdk: 14.0.0
+    bb_write_u32(out_buf, 0);          // ntools: 0
+
+    // LC_SYMTAB (24 bytes)
+    bb_write_u32(out_buf, 2);          // cmd: 0x02 (LC_SYMTAB)
+    bb_write_u32(out_buf, sym_cmd_size);
+    bb_write_u32(out_buf, sym_file_off);
+    bb_write_u32(out_buf, nsyms);
+    bb_write_u32(out_buf, str_file_off);
+    bb_write_u32(out_buf, str_size);
+
+    // 8. Write Payloads with alignments
+    bb_write_bytes(out_buf, cg.code.data, cg.code.size);
+    while out_buf.size < rdata_file_off {
+        bb_write_u8(out_buf, 0);
+    }
+
+    bb_write_bytes(out_buf, rdata.data, rdata.size);
+    while out_buf.size < reloc_file_off {
+        bb_write_u8(out_buf, 0);
+    }
+
+    bb_write_bytes(out_buf, reloc_buf.data, reloc_buf.size);
+    while out_buf.size < sym_file_off {
+        bb_write_u8(out_buf, 0);
+    }
+
+    bb_write_bytes(out_buf, symtab_buf.data, symtab_buf.size);
+    while out_buf.size < str_file_off {
+        bb_write_u8(out_buf, 0);
+    }
+
+    bb_write_bytes(out_buf, strtab.data, strtab.size);
+
+    // Determine output file path
+    let is_obj_only = false;
+    let obj_path = out_path;
+    let path_len = str_len(out_path);
+    if path_len >= 2 && str_char(out_path, path_len - 2) == 46 && str_char(out_path, path_len - 1) == 111 {
+        // ends with ".o"
+        is_obj_only = true;
+    } else {
+        obj_path = str_concat(out_path, ".o");
+    }
+
+    print("[macho] obj_path: ", obj_path, " size: ", out_buf.size, "\n");
+    let written = write_file(obj_path, out_buf.data, out_buf.size);
+    print("[macho] written: ", written, "\n");
+    if written <= 0 {
+        return false;
+    }
+
+    if is_obj_only {
+        return true;
+    }
+
+    // Link with clang to create signed executable
+    let cmd = str_concat("clang ", obj_path);
+    cmd = str_concat(cmd, " -o ");
+    cmd = str_concat(cmd, out_path);
+    let rc = exec_cmd(cmd);
+    if rc != 0 {
+        let host_cmd = str_concat("/usr/bin/clang ", obj_path);
+        host_cmd = str_concat(host_cmd, " -o ");
+        host_cmd = str_concat(host_cmd, out_path);
+        rc = exec_cmd(host_cmd);
+    }
+
+    if rc == 0 {
+        delete_file(obj_path);
+        return true;
+    }
+
+    print("[Info] Mach-O object written to ", obj_path, ". Link with: clang ", obj_path, " -o ", out_path, "\n");
+    return true;
+}

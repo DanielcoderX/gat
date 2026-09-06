@@ -1,0 +1,6 @@
+fn main() -> i64 {
+    print("testing exec_cmd...\n");
+    let rc = exec_cmd("echo 'hello from sh'");
+    print("rc: ", rc, "\n");
+    return 0;
+}

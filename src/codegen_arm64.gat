@@ -1,0 +1,1229 @@
+// ============================================================================
+// src/codegen_arm64.gat - AArch64 (ARM64) Machine Codegen & Runtime
+// ============================================================================
+
+fn cg_arm64_reloc(cg: CodeGen, sym: string, kind: i64, placeholder_inst: i64) {
+    let r = new Reloc {
+        offset: cg.code.size,
+        sym: sym,
+        kind: kind,
+        next: nil
+    };
+    if cg.relocs_head == nil {
+        cg.relocs_head = r;
+        cg.relocs_tail = r;
+    } else {
+        cg.relocs_tail.next = r;
+        cg.relocs_tail = r;
+    }
+    bb_write_u32(cg.code, placeholder_inst);
+}
+
+fn cg_arm64_call_sym(cg: CodeGen, sym: string) {
+    cg_arm64_reloc(cg, sym, 1, 2483027968); // 0x94000000 (BL 0)
+}
+
+fn cg_arm64_load_data_addr(cg: CodeGen, rd: i64, sym: string) {
+    let r = new Reloc {
+        offset: cg.code.size,
+        sym: sym,
+        kind: 3,
+        next: nil
+    };
+    if cg.relocs_head == nil {
+        cg.relocs_head = r;
+        cg.relocs_tail = r;
+    } else {
+        cg.relocs_tail.next = r;
+        cg.relocs_tail = r;
+    }
+    if target_is_macos(cg.target) {
+        a64_adrp(cg.code, rd, 0);
+        a64_add_imm(cg.code, rd, rd, 0);
+    } else {
+        a64_movz(cg.code, rd, 0, 0);
+        a64_movk(cg.code, rd, 0, 1);
+        a64_movk(cg.code, rd, 0, 2);
+    }
+}
+
+fn cg_a64_local_offset(val_id: i64) -> i64 {
+    return val_id * 8 + 16;
+}
+
+fn cg_a64_load_local(cg: CodeGen, rd: i64, val_id: i64) {
+    if val_id == 0 {
+        a64_mov_imm(cg.code, rd, 0);
+        return;
+    }
+    let off = cg_a64_local_offset(val_id);
+    if off < 32768 {
+        a64_ldr_imm(cg.code, rd, A64_FP, off);
+    } else {
+        a64_mov_imm(cg.code, A64_X15, off);
+        a64_add_reg(cg.code, A64_X15, A64_FP, A64_X15);
+        a64_ldr_imm(cg.code, rd, A64_X15, 0);
+    }
+}
+
+fn cg_a64_store_local(cg: CodeGen, rd: i64, val_id: i64) {
+    if val_id == 0 { return; }
+    let off = cg_a64_local_offset(val_id);
+    if off < 32768 {
+        a64_str_imm(cg.code, rd, A64_FP, off);
+    } else {
+        a64_mov_imm(cg.code, A64_X15, off);
+        a64_add_reg(cg.code, A64_X15, A64_FP, A64_X15);
+        a64_str_imm(cg.code, rd, A64_X15, 0);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// AArch64 Runtime Helpers (Linux Syscalls)
+// ----------------------------------------------------------------------------
+
+fn cg_arm64_emit_runtime(cg: CodeGen) {
+    // 0. __gat_entry -> _start / _main
+    cg_define_sym(cg, "__gat_entry");
+    if target_is_macos(cg.target) {
+        // macOS Darwin: dyld calls _main(argc, argv) with x0=argc, x1=argv
+        a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+        a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+        a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+        a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+        cg_arm64_load_data_addr(cg, A64_X9, "_gat_argc");
+        a64_str_imm(cg.code, A64_X0, A64_X9, 0);
+        cg_arm64_load_data_addr(cg, A64_X9, "_gat_argv");
+        a64_str_imm(cg.code, A64_X1, A64_X9, 0);
+
+        cg_arm64_call_sym(cg, "main");
+
+        // x0 has main exit status
+        a64_mov_imm(cg.code, A64_X16, 1);
+        a64_svc_darwin(cg.code);
+    } else {
+        // Linux kernel places [sp] = argc, [sp+8] = argv[0]
+        a64_ldr_imm(cg.code, A64_X0, A64_SP, 0);               // x0 = argc
+        a64_add_imm(cg.code, A64_X1, A64_SP, 8);               // x1 = argv
+        cg_arm64_load_data_addr(cg, A64_X9, "_gat_argc");
+        a64_str_imm(cg.code, A64_X0, A64_X9, 0);               // [_gat_argc] = x0
+        cg_arm64_load_data_addr(cg, A64_X9, "_gat_argv");
+        a64_str_imm(cg.code, A64_X1, A64_X9, 0);               // [_gat_argv] = x1
+
+        cg_arm64_call_sym(cg, "main");
+
+        // Exit with sys_exit_group (94)
+        a64_mov_imm(cg.code, A64_X8, 94);
+        a64_svc(cg.code);
+    }
+
+    // 1. __gat_print_str(x0: string)
+    cg_define_sym(cg, "__gat_print_str");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 11); // jump to done (+11 words to ret)
+    a64_mov_reg(cg.code, A64_X1, A64_X0); // x1 = buf
+    a64_mov_imm(cg.code, A64_X2, 0);      // x2 = len = 0
+    // .Llen_loop:
+    a64_ldrb_idx(cg.code, A64_X3, A64_X1, A64_X2);
+    a64_cmp_imm(cg.code, A64_X3, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 3);  // jump to write (+3 words)
+    a64_add_imm(cg.code, A64_X2, A64_X2, 1);
+    a64_b(cg.code, (0 - 4));              // jump to len_loop
+    // .Lwrite:
+    a64_mov_imm(cg.code, A64_X0, 1);      // stdout = 1
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 4);  // sys_write = 4 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 64);  // sys_write = 64 (Linux)
+        a64_svc(cg.code);
+    }
+    // .Ldone:
+    a64_ret(cg.code, A64_LR);
+
+    // 2. __gat_print_i64(x0: i64)
+    cg_define_sym(cg, "__gat_print_i64");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+    a64_mov_reg(cg.code, A64_X1, A64_FP);
+    a64_add_imm(cg.code, A64_X1, A64_X1, 63);       // pointer to end of buffer
+    a64_mov_imm(cg.code, A64_X9, 0);                // count = 0
+    a64_mov_imm(cg.code, A64_X10, 0);               // is_neg = 0
+
+    // check if zero:
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 6);            // if not zero, skip zero handler
+    // zero handler:
+    a64_sub_imm(cg.code, A64_X1, A64_X1, 1);
+    a64_mov_imm(cg.code, A64_X14, 48);              // '0'
+    a64_strb_imm(cg.code, A64_X14, A64_X1, 0);
+    a64_mov_imm(cg.code, A64_X9, 1);
+    a64_b(cg.code, 22);                             // jump to .Lwrite
+
+    // neg check:
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_GE, 3);
+    a64_mov_imm(cg.code, A64_X10, 1);
+    a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0); // x0 = -x0
+
+    // .Ldigit_loop:
+    a64_mov_imm(cg.code, A64_X12, 10);
+    a64_sdiv_reg(cg.code, A64_X11, A64_X0, A64_X12); // x11 = x0 / 10
+    a64_mul_reg(cg.code, A64_X13, A64_X11, A64_X12); // x13 = (x0 / 10) * 10
+    a64_sub_reg(cg.code, A64_X14, A64_X0, A64_X13); // x14 = rem = x0 % 10
+    a64_add_imm(cg.code, A64_X14, A64_X14, 48);     // rem + '0'
+    a64_sub_imm(cg.code, A64_X1, A64_X1, 1);
+    a64_strb_imm(cg.code, A64_X14, A64_X1, 0);
+    a64_add_imm(cg.code, A64_X9, A64_X9, 1);
+    a64_mov_reg(cg.code, A64_X0, A64_X11);
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_NE, (0 - 10));     // loop if x0 != 0
+
+    // If negative, prepend '-'
+    a64_cmp_imm(cg.code, A64_X10, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 5);
+    a64_sub_imm(cg.code, A64_X1, A64_X1, 1);
+    a64_mov_imm(cg.code, A64_X14, 45);              // '-'
+    a64_strb_imm(cg.code, A64_X14, A64_X1, 0);
+    a64_add_imm(cg.code, A64_X9, A64_X9, 1);
+
+    // .Lwrite:
+    a64_mov_reg(cg.code, A64_X2, A64_X9);           // count
+    a64_mov_imm(cg.code, A64_X0, 1);                // stdout
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 4);           // sys_write = 4 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 64);           // sys_write = 64 (Linux)
+        a64_svc(cg.code);
+    }
+
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_ret(cg.code, A64_LR);
+
+    // 3. __gat_print_bool(x0: bool)
+    cg_define_sym(cg, "__gat_print_bool");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 16);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    let skip_true: i64 = 4;
+    let skip_false: i64 = 3;
+    if target_is_macos(cg.target) == false {
+        skip_true = 5;
+        skip_false = 4;
+    }
+    a64_b_cond(cg.code, A64_COND_EQ, skip_true);
+    cg_arm64_load_data_addr(cg, A64_X0, "str_true_const");
+    a64_b(cg.code, skip_false);
+    cg_arm64_load_data_addr(cg, A64_X0, "str_false_const");
+    cg_arm64_call_sym(cg, "__gat_print_str");
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 16);
+    a64_ret(cg.code, A64_LR);
+
+    // 4. __gat_alloc_mem(x0: size) -> raw ptr
+    cg_define_sym(cg, "__gat_alloc_mem");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+    a64_add_imm(cg.code, A64_X1, A64_X0, 16);       // x1 = size + 16
+    a64_str_imm(cg.code, A64_X1, A64_FP, 16);       // save total_size
+    a64_mov_imm(cg.code, A64_X0, 0);                // addr = 0
+    a64_mov_imm(cg.code, A64_X2, 3);                // PROT_READ | PROT_WRITE
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X3, 4098);          // MAP_PRIVATE (0x2) | MAP_ANON (0x1000) = 4098
+        a64_mov_imm(cg.code, A64_X4, 0 - 1);        // fd = -1
+        a64_mov_imm(cg.code, A64_X5, 0);            // offset = 0
+        a64_mov_imm(cg.code, A64_X16, 197);         // sys_mmap = 197 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X3, 34);           // MAP_PRIVATE | MAP_ANONYMOUS
+        a64_mov_imm(cg.code, A64_X4, 0 - 1);        // fd = -1
+        a64_mov_imm(cg.code, A64_X5, 0);            // offset = 0
+        a64_mov_imm(cg.code, A64_X8, 222);          // sys_mmap = 222 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+
+    a64_ldr_imm(cg.code, A64_X1, A64_FP, 16);       // restore total_size
+    a64_str_imm(cg.code, A64_X1, A64_X0, 0);        // [ptr] = total_size
+    a64_add_imm(cg.code, A64_X0, A64_X0, 16);       // return ptr + 16
+
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+
+    // 5. __gat_free_mem(x0: ptr)
+    cg_define_sym(cg, "__gat_free_mem");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 6);
+    a64_sub_imm(cg.code, A64_X0, A64_X0, 16);       // x0 = ptr - 16
+    a64_ldr_imm(cg.code, A64_X1, A64_X0, 0);        // x1 = len
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 73);          // sys_munmap = 73 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 215);          // sys_munmap = 215 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+    a64_ret(cg.code, A64_LR);
+
+    // 6. __gat_exit_process(x0: code)
+    cg_define_sym(cg, "__gat_exit_process");
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 1);           // sys_exit = 1 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 94);           // sys_exit_group = 94 (Linux)
+        a64_svc(cg.code);
+    }
+
+    // 7. __gat_get_pid() -> i64
+    cg_define_sym(cg, "__gat_get_pid");
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 20);          // sys_getpid = 20 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 172);          // sys_getpid = 172 (Linux)
+        a64_svc(cg.code);
+    }
+    a64_ret(cg.code, A64_LR);
+
+    // 8. __gat_str_len(x0: str) -> i64
+    cg_define_sym(cg, "__gat_str_len");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 3);
+    a64_mov_imm(cg.code, A64_X0, 0);
+    a64_ret(cg.code, A64_LR);
+    a64_mov_reg(cg.code, A64_X1, A64_X0);           // x1 = str
+    a64_mov_imm(cg.code, A64_X0, 0);                // x0 = count = 0
+    // .Lloop:
+    a64_ldrb_idx(cg.code, A64_X2, A64_X1, A64_X0);
+    a64_cmp_imm(cg.code, A64_X2, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 3);
+    a64_add_imm(cg.code, A64_X0, A64_X0, 1);
+    a64_b(cg.code, (0 - 4));
+    a64_ret(cg.code, A64_LR);
+
+    // 9. __gat_str_char(x0: str, x1: idx) -> i64
+    cg_define_sym(cg, "__gat_str_char");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 3);
+    a64_mov_imm(cg.code, A64_X0, 0);
+    a64_ret(cg.code, A64_LR);
+    a64_ldrb_idx(cg.code, A64_X0, A64_X0, A64_X1);
+    a64_ret(cg.code, A64_LR);
+
+    // 10. __gat_str_eq(x0: s1, x1: s2) -> bool
+    cg_define_sym(cg, "__gat_str_eq");
+    a64_cmp_reg(cg.code, A64_X0, A64_X1);
+    a64_b_cond(cg.code, A64_COND_NE, 3);
+    a64_mov_imm(cg.code, A64_X0, 1);
+    a64_ret(cg.code, A64_LR);
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 3);
+    a64_cmp_imm(cg.code, A64_X1, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 3);
+    a64_mov_imm(cg.code, A64_X0, 0);
+    a64_ret(cg.code, A64_LR);
+    a64_mov_imm(cg.code, A64_X2, 0);                // idx = 0
+    // .Lcmp_loop:
+    a64_ldrb_idx(cg.code, A64_X3, A64_X0, A64_X2);
+    a64_ldrb_idx(cg.code, A64_X4, A64_X1, A64_X2);
+    a64_cmp_reg(cg.code, A64_X3, A64_X4);
+    a64_b_cond(cg.code, A64_COND_EQ, 3);
+    a64_mov_imm(cg.code, A64_X0, 0);
+    a64_ret(cg.code, A64_LR);
+    a64_cmp_imm(cg.code, A64_X3, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 3);
+    a64_mov_imm(cg.code, A64_X0, 1);
+    a64_ret(cg.code, A64_LR);
+    a64_add_imm(cg.code, A64_X2, A64_X2, 1);
+    a64_b(cg.code, (0 - 11));
+
+    // 11. __gat_str_concat(x0: s1, x1: s2) -> string
+    cg_define_sym(cg, "__gat_str_concat");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 48);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_X0, A64_FP, 16);
+    a64_str_imm(cg.code, A64_X1, A64_FP, 24);
+
+    cg_arm64_call_sym(cg, "__gat_str_len");
+    a64_str_imm(cg.code, A64_X0, A64_FP, 32);        // len1
+    a64_ldr_imm(cg.code, A64_X0, A64_FP, 24);
+    cg_arm64_call_sym(cg, "__gat_str_len");
+    a64_str_imm(cg.code, A64_X0, A64_FP, 40);        // len2
+
+    a64_ldr_imm(cg.code, A64_X9, A64_FP, 32);
+    a64_add_reg(cg.code, A64_X0, A64_X9, A64_X0);   // len1 + len2
+    a64_add_imm(cg.code, A64_X0, A64_X0, 1);        // + 1 for null terminator
+    cg_arm64_call_sym(cg, "__gat_alloc_mem");
+    // x0 = new_buf
+    a64_ldr_imm(cg.code, A64_X1, A64_FP, 16);       // src1
+    a64_ldr_imm(cg.code, A64_X2, A64_FP, 32);       // len1
+    a64_mov_imm(cg.code, A64_X3, 0);                // i = 0
+    // Copy s1:
+    a64_cmp_reg(cg.code, A64_X3, A64_X2);
+    a64_b_cond(cg.code, A64_COND_GE, 5);
+    a64_ldrb_idx(cg.code, A64_X4, A64_X1, A64_X3);
+    a64_strb_idx(cg.code, A64_X4, A64_X0, A64_X3);
+    a64_add_imm(cg.code, A64_X3, A64_X3, 1);
+    a64_b(cg.code, (0 - 5));
+
+    // Copy s2:
+    a64_ldr_imm(cg.code, A64_X1, A64_FP, 24);       // src2
+    a64_ldr_imm(cg.code, A64_X2, A64_FP, 40);       // len2
+    a64_mov_imm(cg.code, A64_X4, 0);                // j = 0
+    a64_cmp_reg(cg.code, A64_X4, A64_X2);
+    a64_b_cond(cg.code, A64_COND_GE, 6);
+    a64_ldrb_idx(cg.code, A64_X5, A64_X1, A64_X4);
+    a64_add_reg(cg.code, A64_X6, A64_X3, A64_X4);
+    a64_strb_idx(cg.code, A64_X5, A64_X0, A64_X6);
+    a64_add_imm(cg.code, A64_X4, A64_X4, 1);
+    a64_b(cg.code, (0 - 6));
+
+    // Set null terminator
+    a64_add_reg(cg.code, A64_X6, A64_X3, A64_X4);
+    a64_mov_imm(cg.code, A64_X5, 0);
+    a64_strb_idx(cg.code, A64_X5, A64_X0, A64_X6);
+
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 48);
+    a64_ret(cg.code, A64_LR);
+
+    // 12. __gat_str_sub(x0: s, x1: start, x2: len) -> string
+    cg_define_sym(cg, "__gat_str_sub");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 48);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_X0, A64_FP, 16);
+    a64_str_imm(cg.code, A64_X1, A64_FP, 24);
+    a64_str_imm(cg.code, A64_X2, A64_FP, 32);
+
+    a64_add_imm(cg.code, A64_X0, A64_X2, 1);        // len + 1
+    cg_arm64_call_sym(cg, "__gat_alloc_mem");
+    // x0 = new_buf
+    a64_ldr_imm(cg.code, A64_X1, A64_FP, 16);       // s
+    a64_ldr_imm(cg.code, A64_X2, A64_FP, 24);       // start
+    a64_ldr_imm(cg.code, A64_X3, A64_FP, 32);       // len
+    a64_mov_imm(cg.code, A64_X4, 0);                // i = 0
+    // .Lcopy:
+    a64_cmp_reg(cg.code, A64_X4, A64_X3);
+    a64_b_cond(cg.code, A64_COND_GE, 6);
+    a64_add_reg(cg.code, A64_X5, A64_X2, A64_X4);
+    a64_ldrb_idx(cg.code, A64_X6, A64_X1, A64_X5);
+    a64_strb_idx(cg.code, A64_X6, A64_X0, A64_X4);
+    a64_add_imm(cg.code, A64_X4, A64_X4, 1);
+    a64_b(cg.code, (0 - 6));
+    a64_mov_imm(cg.code, A64_X6, 0);
+    a64_strb_idx(cg.code, A64_X6, A64_X0, A64_X4);
+
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 48);
+    a64_ret(cg.code, A64_LR);
+
+    // 13. __gat_str_from_int(x0: i64) -> string
+    cg_define_sym(cg, "__gat_str_from_int");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+    // Format into stack buffer [FP+16 .. FP+63]
+    a64_add_imm(cg.code, A64_X1, A64_FP, 63);
+    a64_mov_imm(cg.code, A64_X2, 0);
+    a64_strb_imm(cg.code, A64_X2, A64_X1, 0);
+    a64_mov_imm(cg.code, A64_X9, 0);          // len = 0
+
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 6);
+    a64_sub_imm(cg.code, A64_X1, A64_X1, 1);
+    a64_mov_imm(cg.code, A64_X2, 48);
+    a64_strb_imm(cg.code, A64_X2, A64_X1, 0);
+    a64_mov_imm(cg.code, A64_X9, 1);
+    a64_b(cg.code, 23);
+
+    a64_mov_imm(cg.code, A64_X10, 0);         // is_neg = 0
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_GE, 3);
+    a64_mov_imm(cg.code, A64_X10, 1);
+    a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0);
+    a64_mov_imm(cg.code, A64_X12, 10);
+    a64_sdiv_reg(cg.code, A64_X11, A64_X0, A64_X12);
+    a64_mul_reg(cg.code, A64_X13, A64_X11, A64_X12);
+    a64_sub_reg(cg.code, A64_X14, A64_X0, A64_X13);
+    a64_add_imm(cg.code, A64_X14, A64_X14, 48);
+    a64_sub_imm(cg.code, A64_X1, A64_X1, 1);
+    a64_strb_imm(cg.code, A64_X14, A64_X1, 0);
+    a64_add_imm(cg.code, A64_X9, A64_X9, 1);
+    a64_mov_reg(cg.code, A64_X0, A64_X11);
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_NE, (0 - 10));
+
+    a64_cmp_imm(cg.code, A64_X10, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 5);
+    a64_sub_imm(cg.code, A64_X1, A64_X1, 1);
+    a64_mov_imm(cg.code, A64_X14, 45);
+    a64_strb_imm(cg.code, A64_X14, A64_X1, 0);
+    a64_add_imm(cg.code, A64_X9, A64_X9, 1);
+
+    // Now allocate len + 1 and copy
+    a64_str_imm(cg.code, A64_X1, A64_FP, 16);       // save str_start ptr
+    a64_str_imm(cg.code, A64_X9, A64_FP, 24);       // save str_len
+    a64_add_imm(cg.code, A64_X0, A64_X9, 1);
+    cg_arm64_call_sym(cg, "__gat_alloc_mem");
+    // x0 = dst
+    a64_ldr_imm(cg.code, A64_X1, A64_FP, 16);       // src
+    a64_ldr_imm(cg.code, A64_X2, A64_FP, 24);       // len
+    a64_mov_imm(cg.code, A64_X3, 0);
+    // .Lcpy:
+    a64_cmp_reg(cg.code, A64_X3, A64_X2);
+    a64_b_cond(cg.code, A64_COND_GE, 5);
+    a64_ldrb_idx(cg.code, A64_X4, A64_X1, A64_X3);
+    a64_strb_idx(cg.code, A64_X4, A64_X0, A64_X3);
+    a64_add_imm(cg.code, A64_X3, A64_X3, 1);
+    a64_b(cg.code, (0 - 5));
+    a64_mov_imm(cg.code, A64_X4, 0);
+    a64_strb_idx(cg.code, A64_X4, A64_X0, A64_X3);
+
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_ret(cg.code, A64_LR);
+
+    // 14. __gat_get_cmd_arg(x0: idx) -> string
+    cg_define_sym(cg, "__gat_get_cmd_arg");
+    let ge_offset: i64 = 6;
+    let lt_offset: i64 = 8;
+    if target_is_macos(cg.target) == false {
+        ge_offset = 7;
+        lt_offset = 9;
+    }
+    cg_arm64_load_data_addr(cg, A64_X1, "_gat_argc");
+    a64_ldr_imm(cg.code, A64_X1, A64_X1, 0);        // argc
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_LT, lt_offset);
+    a64_cmp_reg(cg.code, A64_X0, A64_X1);
+    a64_b_cond(cg.code, A64_COND_GE, ge_offset);
+    cg_arm64_load_data_addr(cg, A64_X2, "_gat_argv");
+    a64_ldr_imm(cg.code, A64_X2, A64_X2, 0);        // argv array ptr
+    a64_ldr_idx(cg.code, A64_X0, A64_X2, A64_X0);   // argv[idx]
+    a64_ret(cg.code, A64_LR);
+    cg_arm64_load_data_addr(cg, A64_X0, "str_empty_const");
+    a64_ret(cg.code, A64_LR);
+
+
+    // 15. __gat_retain(x0: ptr)
+    cg_define_sym(cg, "__gat_retain");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 6);
+    a64_sub_imm(cg.code, A64_X1, A64_X0, 24);       // header at ptr - 24
+    a64_ldr_imm(cg.code, A64_X2, A64_X1, 0);        // strong_count
+    a64_add_imm(cg.code, A64_X2, A64_X2, 1);
+    a64_str_imm(cg.code, A64_X2, A64_X1, 0);
+    a64_ret(cg.code, A64_LR);
+
+    // 16. __gat_release(x0: ptr)
+    cg_define_sym(cg, "__gat_release");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 18);
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_str_imm(cg.code, A64_X0, A64_SP, 16);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+    a64_sub_imm(cg.code, A64_X1, A64_X0, 24);
+    a64_ldr_imm(cg.code, A64_X2, A64_X1, 0);        // strong_count
+    a64_sub_imm(cg.code, A64_X2, A64_X2, 1);
+    a64_str_imm(cg.code, A64_X2, A64_X1, 0);
+    a64_cmp_imm(cg.code, A64_X2, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 6);            // if > 0 done
+
+    // Free memory: ptr - 24
+    a64_ldr_imm(cg.code, A64_X0, A64_FP, 16);
+    a64_sub_imm(cg.code, A64_X0, A64_X0, 24);
+    cg_arm64_call_sym(cg, "__gat_free_mem");
+
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+
+    // 17. __gat_weak_retain(x0: ptr)
+    cg_define_sym(cg, "__gat_weak_retain");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 6);
+    a64_sub_imm(cg.code, A64_X1, A64_X0, 16);       // weak_count at ptr - 16
+    a64_ldr_imm(cg.code, A64_X2, A64_X1, 0);
+    a64_add_imm(cg.code, A64_X2, A64_X2, 1);
+    a64_str_imm(cg.code, A64_X2, A64_X1, 0);
+    a64_ret(cg.code, A64_LR);
+
+    // 18. __gat_weak_release(x0: ptr)
+    cg_define_sym(cg, "__gat_weak_release");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_EQ, 18);
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_str_imm(cg.code, A64_X0, A64_SP, 16);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+    a64_sub_imm(cg.code, A64_X1, A64_X0, 16);
+    a64_ldr_imm(cg.code, A64_X2, A64_X1, 0);        // weak_count
+    a64_sub_imm(cg.code, A64_X2, A64_X2, 1);
+    a64_str_imm(cg.code, A64_X2, A64_X1, 0);
+    a64_cmp_imm(cg.code, A64_X2, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 6);
+
+    a64_ldr_imm(cg.code, A64_X0, A64_FP, 16);
+    a64_sub_imm(cg.code, A64_X0, A64_X0, 24);
+    cg_arm64_call_sym(cg, "__gat_free_mem");
+
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+
+    // 19. __gat_strong_count(x0: ptr) -> i64
+    cg_define_sym(cg, "__gat_strong_count");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 3);
+    a64_mov_imm(cg.code, A64_X0, 0);
+    a64_ret(cg.code, A64_LR);
+    a64_sub_imm(cg.code, A64_X1, A64_X0, 24);
+    a64_ldr_imm(cg.code, A64_X0, A64_X1, 0);
+    a64_ret(cg.code, A64_LR);
+
+    // 20. __gat_weak_count(x0: ptr) -> i64
+    cg_define_sym(cg, "__gat_weak_count");
+    a64_cmp_imm(cg.code, A64_X0, 0);
+    a64_b_cond(cg.code, A64_COND_NE, 3);
+    a64_mov_imm(cg.code, A64_X0, 0);
+    a64_ret(cg.code, A64_LR);
+    a64_sub_imm(cg.code, A64_X1, A64_X0, 16);
+    a64_ldr_imm(cg.code, A64_X0, A64_X1, 0);
+    a64_ret(cg.code, A64_LR);
+
+    // 21. __gat_get_temp_dir() -> string
+    cg_define_sym(cg, "__gat_get_temp_dir");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 16);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_mov_imm(cg.code, A64_X0, 8);
+    cg_arm64_call_sym(cg, "__gat_alloc_mem");
+    a64_mov_imm(cg.code, A64_X1, 1886221359); // "/tmp\0"
+    a64_str_imm(cg.code, A64_X1, A64_X0, 0);
+    a64_mov_imm(cg.code, A64_X1, 0);
+    a64_strb_imm(cg.code, A64_X1, A64_X0, 4);
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 16);
+    a64_ret(cg.code, A64_LR);
+
+    // 22. __gat_sleep(x0: ms)
+    cg_define_sym(cg, "__gat_sleep");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_mov_imm(cg.code, A64_X1, 1000);
+    a64_sdiv_reg(cg.code, A64_X2, A64_X0, A64_X1);
+    a64_mul_reg(cg.code, A64_X3, A64_X2, A64_X1);
+    a64_sub_reg(cg.code, A64_X3, A64_X0, A64_X3);
+    a64_mov_imm(cg.code, A64_X4, 1000000);
+    a64_mul_reg(cg.code, A64_X3, A64_X3, A64_X4);
+    a64_str_imm(cg.code, A64_X2, A64_SP, 16);
+    a64_str_imm(cg.code, A64_X3, A64_SP, 24);
+    a64_add_imm(cg.code, A64_X0, A64_SP, 16);
+    a64_mov_imm(cg.code, A64_X1, 0);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 240); // sys_nanosleep = 240 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 101);  // sys_nanosleep = 101 (Linux)
+        a64_svc(cg.code);
+    }
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+
+    // 23. __gat_delete_file(x0: path) -> bool
+    cg_define_sym(cg, "__gat_delete_file");
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 10);  // sys_unlink = 10 (Darwin)
+        a64_svc_darwin(cg.code);
+        a64_cset(cg.code, A64_X0, 3);        // Carry Clear (success) -> 1, Carry Set (error) -> 0
+    } else {
+        a64_mov_reg(cg.code, A64_X1, A64_X0);
+        a64_mov_imm(cg.code, A64_X0, 0 - 100); // AT_FDCWD
+        a64_mov_imm(cg.code, A64_X2, 0);
+        a64_mov_imm(cg.code, A64_X8, 35);      // sys_unlinkat = 35 (Linux)
+        a64_svc(cg.code);
+        a64_cmp_imm(cg.code, A64_X0, 0);
+        a64_cset(cg.code, A64_X0, A64_COND_EQ);
+    }
+    a64_ret(cg.code, A64_LR);
+
+    // 24. __gat_file_size(x0: path) -> i64
+    cg_define_sym(cg, "__gat_file_size");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_str_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X1, 0);
+        a64_mov_imm(cg.code, A64_X2, 0);
+        a64_mov_imm(cg.code, A64_X16, 5);
+        a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, 2, 11); // if error (Carry Set), jump to fail
+    } else {
+        a64_mov_reg(cg.code, A64_X1, A64_X0);
+        a64_mov_imm(cg.code, A64_X0, 0 - 100);
+        a64_mov_imm(cg.code, A64_X2, 0);
+        a64_mov_imm(cg.code, A64_X3, 0);
+        a64_mov_imm(cg.code, A64_X8, 56);
+        a64_svc(cg.code);
+        a64_cmp_imm(cg.code, A64_X0, 0);
+        a64_b_cond(cg.code, A64_COND_LT, 11);
+    }
+    a64_mov_reg(cg.code, A64_X19, A64_X0);
+    a64_mov_imm(cg.code, A64_X1, 0);
+    a64_mov_imm(cg.code, A64_X2, 2);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 199);
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 62);
+        a64_svc(cg.code);
+    }
+    a64_mov_reg(cg.code, A64_X20, A64_X0); // size
+    a64_mov_reg(cg.code, A64_X0, A64_X19);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 6);
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 57);
+        a64_svc(cg.code);
+    }
+    a64_mov_reg(cg.code, A64_X0, A64_X20);
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_ldr_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+    // fail: return -1
+    a64_mov_imm(cg.code, A64_X0, 0 - 1);
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_ldr_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+
+    // 25. __gat_read_file(x0: path) -> string
+    cg_define_sym(cg, "__gat_read_file");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_str_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_str_imm(cg.code, A64_X20, A64_SP, 24);
+    a64_str_imm(cg.code, A64_X21, A64_SP, 32);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X1, 0);
+        a64_mov_imm(cg.code, A64_X2, 0);
+        a64_mov_imm(cg.code, A64_X16, 5);
+        a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, 2, 34); // if error (Carry Set), jump to .Lrf_fail
+    } else {
+        a64_mov_reg(cg.code, A64_X1, A64_X0);
+        a64_mov_imm(cg.code, A64_X0, 0 - 100);
+        a64_mov_imm(cg.code, A64_X2, 0);
+        a64_mov_imm(cg.code, A64_X3, 0);
+        a64_mov_imm(cg.code, A64_X8, 56);
+        a64_svc(cg.code);
+        a64_cmp_imm(cg.code, A64_X0, 0);
+        a64_b_cond(cg.code, 11, 34);
+    }
+    a64_mov_reg(cg.code, A64_X19, A64_X0);
+    a64_mov_reg(cg.code, A64_X0, A64_X19);
+    a64_mov_imm(cg.code, A64_X1, 0);
+    a64_mov_imm(cg.code, A64_X2, 2);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 199);
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 62);
+        a64_svc(cg.code);
+    }
+    a64_mov_reg(cg.code, A64_X20, A64_X0);
+    a64_mov_reg(cg.code, A64_X0, A64_X19);
+    a64_mov_imm(cg.code, A64_X1, 0);
+    a64_mov_imm(cg.code, A64_X2, 0);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 199);
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 62);
+        a64_svc(cg.code);
+    }
+    a64_add_imm(cg.code, A64_X0, A64_X20, 1);
+    cg_arm64_call_sym(cg, "__gat_alloc_mem");
+    a64_mov_reg(cg.code, A64_X21, A64_X0);
+    a64_mov_reg(cg.code, A64_X0, A64_X19);
+    a64_mov_reg(cg.code, A64_X1, A64_X21);
+    a64_mov_reg(cg.code, A64_X2, A64_X20);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 3);
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 63);
+        a64_svc(cg.code);
+    }
+    a64_mov_imm(cg.code, A64_X1, 0);
+    a64_strb_idx(cg.code, A64_X1, A64_X21, A64_X20);
+    a64_mov_reg(cg.code, A64_X0, A64_X19);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 6);
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 57);
+        a64_svc(cg.code);
+    }
+    a64_mov_reg(cg.code, A64_X0, A64_X21);
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_ldr_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_ldr_imm(cg.code, A64_X20, A64_SP, 24);
+    a64_ldr_imm(cg.code, A64_X21, A64_SP, 32);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_ret(cg.code, A64_LR);
+    // .Lrf_fail:
+    cg_arm64_load_data_addr(cg, A64_X0, "str_empty_const");
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_ldr_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_ldr_imm(cg.code, A64_X20, A64_SP, 24);
+    a64_ldr_imm(cg.code, A64_X21, A64_SP, 32);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_ret(cg.code, A64_LR);
+
+    // 26. __gat_write_file(x0: path, x1: data, x2: size) -> i64
+    cg_define_sym(cg, "__gat_write_file");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_str_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_str_imm(cg.code, A64_X20, A64_SP, 24);
+    a64_str_imm(cg.code, A64_X21, A64_SP, 32);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_mov_reg(cg.code, A64_X20, A64_X1);
+    a64_mov_reg(cg.code, A64_X21, A64_X2);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X1, 1537); // O_WRONLY|O_CREAT|O_TRUNC (1|512|1024)
+        a64_mov_imm(cg.code, A64_X2, 420);  // 0644
+        a64_mov_imm(cg.code, A64_X16, 5);
+        a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, 2, 19); // if error (Carry Set), jump to .Lfail_write
+    } else {
+        a64_mov_reg(cg.code, A64_X1, A64_X0);
+        a64_mov_imm(cg.code, A64_X0, 0 - 100);
+        a64_mov_imm(cg.code, A64_X2, 577);
+        a64_mov_imm(cg.code, A64_X3, 420);
+        a64_mov_imm(cg.code, A64_X8, 56);
+        a64_svc(cg.code);
+        a64_cmp_imm(cg.code, A64_X0, 0);
+        a64_b_cond(cg.code, 11, 19);
+    }
+    a64_mov_reg(cg.code, A64_X19, A64_X0); // fd
+    a64_mov_reg(cg.code, A64_X0, A64_X19);
+    a64_mov_reg(cg.code, A64_X1, A64_X20);
+    a64_mov_reg(cg.code, A64_X2, A64_X21);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 4);
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 64);
+        a64_svc(cg.code);
+    }
+    a64_mov_reg(cg.code, A64_X20, A64_X0); // written
+    a64_mov_reg(cg.code, A64_X0, A64_X19);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 6);
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 57);
+        a64_svc(cg.code);
+    }
+    a64_mov_reg(cg.code, A64_X0, A64_X20);
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_ldr_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_ldr_imm(cg.code, A64_X20, A64_SP, 24);
+    a64_ldr_imm(cg.code, A64_X21, A64_SP, 32);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_ret(cg.code, A64_LR);
+    // .Lfail_write:
+    a64_mov_imm(cg.code, A64_X0, 0);
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_ldr_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_ldr_imm(cg.code, A64_X20, A64_SP, 24);
+    a64_ldr_imm(cg.code, A64_X21, A64_SP, 32);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 64);
+    a64_ret(cg.code, A64_LR);
+
+    // 27. __gat_exec_cmd(x0: cmd) -> i64
+    cg_define_sym(cg, "__gat_exec_cmd");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 128);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_str_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_mov_reg(cg.code, A64_X19, A64_X0); // x19 = cmd
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 2); // sys_fork = 2 (Darwin)
+        a64_svc_darwin(cg.code);
+        a64_cmp_imm(cg.code, A64_X1, 0);
+        a64_b_cond(cg.code, A64_COND_NE, 16); // if child (x1!=0) jump to .Lchild
+    } else {
+        a64_mov_imm(cg.code, A64_X0, 17); // SIGCHLD = 17
+        a64_mov_imm(cg.code, A64_X1, 0);
+        a64_mov_imm(cg.code, A64_X2, 0);
+        a64_mov_imm(cg.code, A64_X3, 0);
+        a64_mov_imm(cg.code, A64_X4, 0);
+        a64_mov_imm(cg.code, A64_X8, 220); // sys_clone = 220 (Linux)
+        a64_svc(cg.code);
+        a64_cmp_imm(cg.code, A64_X0, 0);
+        a64_b_cond(cg.code, A64_COND_EQ, 16); // if child (x0==0) jump to .Lchild
+    }
+    // Parent: wait4(child_pid, &status, 0, NULL)
+    a64_add_imm(cg.code, A64_X1, A64_SP, 32); // &status
+    a64_mov_imm(cg.code, A64_X2, 0);          // options = 0
+    a64_mov_imm(cg.code, A64_X3, 0);          // rusage = NULL
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 7);     // sys_wait4 = 7 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 61);     // sys_wait4 = 61 (Linux)
+        a64_svc(cg.code);
+    }
+    a64_ldr_imm(cg.code, A64_X0, A64_SP, 32);
+    a64_mov_imm(cg.code, A64_X1, 8);
+    a64_lsr_reg(cg.code, A64_X0, A64_X0, A64_X1);
+    a64_mov_imm(cg.code, A64_X1, 255);
+    a64_and_reg(cg.code, A64_X0, A64_X0, A64_X1);
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_ldr_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 128);
+    a64_ret(cg.code, A64_LR);
+
+    // .Lchild: execve("/bin/sh", ["/bin/sh", "-c", cmd, NULL], [NULL])
+    // "/bin/sh\0" at [sp+48]
+    a64_mov_imm(cg.code, A64_X0, 29400045130965551); // "/bin/sh\0" (0x0068732f6e69622f)
+    a64_str_imm(cg.code, A64_X0, A64_SP, 48);
+    // "-c\0" at [sp+56]
+    a64_mov_imm(cg.code, A64_X0, 25389);      // 0x632d ("-c\0")
+    a64_str_imm(cg.code, A64_X0, A64_SP, 56);
+    // argv array at [sp+64]:
+    a64_add_imm(cg.code, A64_X0, A64_SP, 48);
+    a64_str_imm(cg.code, A64_X0, A64_SP, 64); // argv[0] = "/bin/sh"
+    a64_add_imm(cg.code, A64_X0, A64_SP, 56);
+    a64_str_imm(cg.code, A64_X0, A64_SP, 72); // argv[1] = "-c"
+    a64_str_imm(cg.code, A64_X19, A64_SP, 80); // argv[2] = cmd
+    a64_mov_imm(cg.code, A64_X0, 0);
+    a64_str_imm(cg.code, A64_X0, A64_SP, 88); // argv[3] = NULL
+    a64_str_imm(cg.code, A64_X0, A64_SP, 96); // envp[0] = NULL
+    a64_add_imm(cg.code, A64_X0, A64_SP, 48); // path
+    a64_add_imm(cg.code, A64_X1, A64_SP, 64); // argv
+    a64_add_imm(cg.code, A64_X2, A64_SP, 96); // envp
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 59);    // sys_execve = 59 (Darwin)
+        a64_svc_darwin(cg.code);
+        a64_mov_imm(cg.code, A64_X0, 127);
+        a64_mov_imm(cg.code, A64_X16, 1);
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 59);     // sys_execve = 59 (Linux)
+        a64_svc(cg.code);
+        a64_mov_imm(cg.code, A64_X0, 127);
+        a64_mov_imm(cg.code, A64_X8, 94);
+        a64_svc(cg.code);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// AArch64 Function Codegen (IR Lowering)
+// ----------------------------------------------------------------------------
+
+fn cg_arm64_emit_function(cg: CodeGen, fn_obj: IRFunc) {
+    cg_define_sym(cg, fn_obj.name);
+
+    // AAPCS64 Frame setup:
+    let frame_size = (fn_obj.max_local + 16) * 8 + 32;
+    frame_size = align_val(frame_size, 16);
+
+    if frame_size <= 4095 {
+        a64_sub_imm(cg.code, A64_SP, A64_SP, frame_size);
+    } else {
+        a64_mov_imm(cg.code, A64_X15, frame_size);
+        a64_sub_sp_reg(cg.code, A64_SP, A64_SP, A64_X15);
+    }
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+    // Incoming parameters (AAPCS64: X0 .. X7)
+    if fn_obj.param_count > 0 { cg_a64_store_local(cg, A64_X0, 1); }
+    if fn_obj.param_count > 1 { cg_a64_store_local(cg, A64_X1, 2); }
+    if fn_obj.param_count > 2 { cg_a64_store_local(cg, A64_X2, 3); }
+    if fn_obj.param_count > 3 { cg_a64_store_local(cg, A64_X3, 4); }
+    if fn_obj.param_count > 4 { cg_a64_store_local(cg, A64_X4, 5); }
+    if fn_obj.param_count > 5 { cg_a64_store_local(cg, A64_X5, 6); }
+    if fn_obj.param_count > 6 { cg_a64_store_local(cg, A64_X6, 7); }
+    if fn_obj.param_count > 7 { cg_a64_store_local(cg, A64_X7, 8); }
+
+    let inst = fn_obj.inst_head;
+    while inst != nil {
+        if inst.op == IR_OP_CONST_INT {
+            a64_mov_imm(cg.code, A64_X9, inst.int_val);
+            cg_a64_store_local(cg, A64_X9, inst.dest);
+        } else if inst.op == IR_OP_CONST_BOOL {
+            a64_movz(cg.code, A64_X9, inst.int_val, 0);
+            cg_a64_store_local(cg, A64_X9, inst.dest);
+        } else if inst.op == IR_OP_CONST_STR {
+            cg_arm64_load_data_addr(cg, A64_X9, inst.str_val);
+            cg_a64_store_local(cg, A64_X9, inst.dest);
+        } else if inst.op == IR_OP_COPY {
+            cg_a64_load_local(cg, A64_X9, inst.src1);
+            cg_a64_store_local(cg, A64_X9, inst.dest);
+        } else if inst.op == IR_OP_BIN_OP {
+            cg_a64_load_local(cg, A64_X9, inst.src1);
+            cg_a64_load_local(cg, A64_X10, inst.src2);
+
+            if str_eq(inst.str_val, "+") {
+                a64_add_reg(cg.code, A64_X9, A64_X9, A64_X10);
+            } else if str_eq(inst.str_val, "-") {
+                a64_sub_reg(cg.code, A64_X9, A64_X9, A64_X10);
+            } else if str_eq(inst.str_val, "*") {
+                a64_mul_reg(cg.code, A64_X9, A64_X9, A64_X10);
+            } else if str_eq(inst.str_val, "/") {
+                a64_sdiv_reg(cg.code, A64_X9, A64_X9, A64_X10);
+            } else if str_eq(inst.str_val, "%") {
+                a64_sdiv_reg(cg.code, A64_X11, A64_X9, A64_X10);
+                a64_mul_reg(cg.code, A64_X11, A64_X11, A64_X10);
+                a64_sub_reg(cg.code, A64_X9, A64_X9, A64_X11);
+            } else if str_eq(inst.str_val, "&&") {
+                a64_and_reg(cg.code, A64_X9, A64_X9, A64_X10);
+            } else if str_eq(inst.str_val, "||") {
+                a64_orr_reg(cg.code, A64_X9, A64_X9, A64_X10);
+            } else if str_eq(inst.str_val, "==") {
+                a64_cmp_reg(cg.code, A64_X9, A64_X10);
+                a64_cset(cg.code, A64_X9, A64_COND_EQ);
+            } else if str_eq(inst.str_val, "!=") {
+                a64_cmp_reg(cg.code, A64_X9, A64_X10);
+                a64_cset(cg.code, A64_X9, A64_COND_NE);
+            } else if str_eq(inst.str_val, "<") {
+                a64_cmp_reg(cg.code, A64_X9, A64_X10);
+                a64_cset(cg.code, A64_X9, A64_COND_LT);
+            } else if str_eq(inst.str_val, "<=") {
+                a64_cmp_reg(cg.code, A64_X9, A64_X10);
+                a64_cset(cg.code, A64_X9, A64_COND_LE);
+            } else if str_eq(inst.str_val, ">") {
+                a64_cmp_reg(cg.code, A64_X9, A64_X10);
+                a64_cset(cg.code, A64_X9, A64_COND_GT);
+            } else if str_eq(inst.str_val, ">=") {
+                a64_cmp_reg(cg.code, A64_X9, A64_X10);
+                a64_cset(cg.code, A64_X9, A64_COND_GE);
+            }
+            cg_a64_store_local(cg, A64_X9, inst.dest);
+        } else if inst.op == IR_OP_UN_OP {
+            cg_a64_load_local(cg, A64_X9, inst.src1);
+            if str_eq(inst.str_val, "-") {
+                a64_sub_reg(cg.code, A64_X9, A64_XZR, A64_X9);
+            } else if str_eq(inst.str_val, "!") {
+                a64_cmp_imm(cg.code, A64_X9, 0);
+                a64_cset(cg.code, A64_X9, A64_COND_EQ);
+            }
+            cg_a64_store_local(cg, A64_X9, inst.dest);
+        } else if inst.op == IR_OP_LOAD {
+            cg_a64_load_local(cg, A64_X9, inst.src1);
+            let off = inst.offset;
+            if off < 32768 {
+                a64_ldr_imm(cg.code, A64_X10, A64_X9, off);
+            } else {
+                a64_mov_imm(cg.code, A64_X15, off);
+                a64_add_reg(cg.code, A64_X15, A64_X9, A64_X15);
+                a64_ldr_imm(cg.code, A64_X10, A64_X15, 0);
+            }
+            cg_a64_store_local(cg, A64_X10, inst.dest);
+        } else if inst.op == IR_OP_STORE {
+            cg_a64_load_local(cg, A64_X9, inst.dest);
+            cg_a64_load_local(cg, A64_X10, inst.src1);
+            let off = inst.offset;
+            if off < 32768 {
+                a64_str_imm(cg.code, A64_X10, A64_X9, off);
+            } else {
+                a64_mov_imm(cg.code, A64_X15, off);
+                a64_add_reg(cg.code, A64_X15, A64_X9, A64_X15);
+                a64_str_imm(cg.code, A64_X10, A64_X15, 0);
+            }
+        } else if inst.op == IR_OP_LOAD_INDEX {
+            cg_a64_load_local(cg, A64_X9, inst.src1);
+            cg_a64_load_local(cg, A64_X10, inst.src2);
+            if inst.int_val == 1 {
+                a64_ldrb_idx(cg.code, A64_X11, A64_X9, A64_X10);
+            } else {
+                a64_ldr_idx(cg.code, A64_X11, A64_X9, A64_X10);
+            }
+            cg_a64_store_local(cg, A64_X11, inst.dest);
+        } else if inst.op == IR_OP_STORE_INDEX {
+            cg_a64_load_local(cg, A64_X9, inst.dest);
+            cg_a64_load_local(cg, A64_X10, inst.src1);
+            cg_a64_load_local(cg, A64_X11, inst.src2);
+            if inst.int_val == 1 {
+                a64_strb_idx(cg.code, A64_X10, A64_X9, A64_X11);
+            } else {
+                a64_str_idx(cg.code, A64_X10, A64_X9, A64_X11);
+            }
+        } else if inst.op == IR_OP_ALLOC_HEAP {
+            a64_mov_imm(cg.code, A64_X0, inst.offset + 24);
+            cg_arm64_call_sym(cg, "__gat_alloc_mem");
+            // Set ARC header: [x0] = 1, [x0+8] = 0, [x0+16] = type_id
+            a64_mov_imm(cg.code, A64_X9, 1);
+            a64_str_imm(cg.code, A64_X9, A64_X0, 0);
+            a64_mov_imm(cg.code, A64_X9, 0);
+            a64_str_imm(cg.code, A64_X9, A64_X0, 8);
+            a64_mov_imm(cg.code, A64_X9, inst.int_val);
+            a64_str_imm(cg.code, A64_X9, A64_X0, 16);
+            a64_add_imm(cg.code, A64_X0, A64_X0, 24);
+            cg_a64_store_local(cg, A64_X0, inst.dest);
+        } else if inst.op == IR_OP_ALLOC_STACK {
+            a64_mov_imm(cg.code, A64_X0, inst.offset + 8);
+            cg_arm64_call_sym(cg, "__gat_alloc_mem");
+            cg_a64_store_local(cg, A64_X0, inst.dest);
+        } else if inst.op == IR_OP_RETAIN {
+            cg_a64_load_local(cg, A64_X0, inst.src1);
+            cg_arm64_call_sym(cg, "__gat_retain");
+        } else if inst.op == IR_OP_RELEASE {
+            cg_a64_load_local(cg, A64_X0, inst.src1);
+            cg_arm64_call_sym(cg, "__gat_release");
+        } else if inst.op == IR_OP_WEAK_RETAIN {
+            cg_a64_load_local(cg, A64_X0, inst.src1);
+            cg_arm64_call_sym(cg, "__gat_weak_retain");
+        } else if inst.op == IR_OP_WEAK_RELEASE {
+            cg_a64_load_local(cg, A64_X0, inst.src1);
+            cg_arm64_call_sym(cg, "__gat_weak_release");
+        } else if inst.op == IR_OP_CALL {
+            if inst.arg_count >= 1 { cg_a64_load_local(cg, A64_X0, inst.src1); }
+            if inst.arg_count >= 2 { cg_a64_load_local(cg, A64_X1, inst.src2); }
+            if inst.arg_count >= 3 { cg_a64_load_local(cg, A64_X2, inst.offset); }
+            if inst.arg_count >= 4 { cg_a64_load_local(cg, A64_X3, inst.int_val); }
+            if inst.arg_count >= 5 { cg_a64_load_local(cg, A64_X4, inst.extra); }
+
+            let callee = inst.str_val;
+            if str_eq(callee, "read_file") { callee = "__gat_read_file"; }
+            else if str_eq(callee, "write_file") { callee = "__gat_write_file"; }
+            else if str_eq(callee, "delete_file") { callee = "__gat_delete_file"; }
+            else if str_eq(callee, "file_size") { callee = "__gat_file_size"; }
+            else if str_eq(callee, "get_pid") { callee = "__gat_get_pid"; }
+            else if str_eq(callee, "exit_process") { callee = "__gat_exit_process"; }
+            else if str_eq(callee, "exec_cmd") { callee = "__gat_exec_cmd"; }
+            else if str_eq(callee, "get_temp_dir") { callee = "__gat_get_temp_dir"; }
+            else if str_eq(callee, "alloc_mem") { callee = "__gat_alloc_mem"; }
+            else if str_eq(callee, "free_mem") { callee = "__gat_free_mem"; }
+            else if str_eq(callee, "str_len") { callee = "__gat_str_len"; }
+            else if str_eq(callee, "str_eq") { callee = "__gat_str_eq"; }
+            else if str_eq(callee, "str_char") { callee = "__gat_str_char"; }
+            else if str_eq(callee, "str_sub") { callee = "__gat_str_sub"; }
+            else if str_eq(callee, "str_concat") { callee = "__gat_str_concat"; }
+            else if str_eq(callee, "str_from_int") { callee = "__gat_str_from_int"; }
+            else if str_eq(callee, "get_cmd_arg") { callee = "__gat_get_cmd_arg"; }
+            else if str_eq(callee, "sleep") { callee = "__gat_sleep"; }
+            else if str_eq(callee, "strong_retain") { callee = "__gat_retain"; }
+            else if str_eq(callee, "strong_release") { callee = "__gat_release"; }
+            else if str_eq(callee, "weak_retain") { callee = "__gat_weak_retain"; }
+            else if str_eq(callee, "weak_release") { callee = "__gat_weak_release"; }
+            else if str_eq(callee, "strong_count") { callee = "__gat_strong_count"; }
+            else if str_eq(callee, "weak_count") { callee = "__gat_weak_count"; }
+
+            cg_arm64_call_sym(cg, callee);
+            if inst.dest != 0 {
+                cg_a64_store_local(cg, A64_X0, inst.dest);
+            }
+        } else if inst.op == IR_OP_CONST_FN {
+            cg_arm64_load_data_addr(cg, A64_X9, inst.str_val);
+            if inst.dest != 0 {
+                cg_a64_store_local(cg, A64_X9, inst.dest);
+            }
+        } else if inst.op == IR_OP_CALL_INDIRECT {
+            cg_a64_load_local(cg, A64_X8, inst.src1);
+            if inst.arg_count >= 1 { cg_a64_load_local(cg, A64_X0, inst.src2); }
+            if inst.arg_count >= 2 { cg_a64_load_local(cg, A64_X1, inst.offset); }
+            if inst.arg_count >= 3 { cg_a64_load_local(cg, A64_X2, inst.int_val); }
+            if inst.arg_count >= 4 { cg_a64_load_local(cg, A64_X3, inst.extra); }
+            a64_blr(cg.code, A64_X8);
+            if inst.dest != 0 {
+                cg_a64_store_local(cg, A64_X0, inst.dest);
+            }
+        } else if inst.op == IR_OP_PRINT {
+            cg_a64_load_local(cg, A64_X0, inst.src1);
+            if inst.type_kind == TYPE_STRING {
+                cg_arm64_call_sym(cg, "__gat_print_str");
+            } else if inst.type_kind == TYPE_BOOL {
+                cg_arm64_call_sym(cg, "__gat_print_bool");
+            } else {
+                cg_arm64_call_sym(cg, "__gat_print_i64");
+            }
+        } else if inst.op == IR_OP_RETURN {
+            cg_a64_load_local(cg, A64_X0, inst.src1);
+            a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+            a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+            if frame_size <= 4095 {
+                a64_add_imm(cg.code, A64_SP, A64_SP, frame_size);
+            } else {
+                a64_mov_imm(cg.code, A64_X15, frame_size);
+                a64_add_sp_reg(cg.code, A64_SP, A64_SP, A64_X15);
+            }
+            a64_ret(cg.code, A64_LR);
+        } else if inst.op == IR_OP_LABEL {
+            cg_define_sym(cg, inst.label);
+        } else if inst.op == IR_OP_JUMP {
+            cg_arm64_reloc(cg, inst.label, 1, 335544320); // 0x14000000 (B 0)
+        } else if inst.op == IR_OP_BRANCH {
+            cg_a64_load_local(cg, A64_X9, inst.src1);
+            a64_cmp_imm(cg.code, A64_X9, 0);
+            cg_arm64_reloc(cg, inst.label, 1, 1409286144); // 0x54000000 (B.EQ 0)
+        }
+        inst = inst.next;
+    }
+
+    // Default epilogue
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    if frame_size <= 4095 {
+        a64_add_imm(cg.code, A64_SP, A64_SP, frame_size);
+    } else {
+        a64_mov_imm(cg.code, A64_X15, frame_size);
+        a64_add_sp_reg(cg.code, A64_SP, A64_SP, A64_X15);
+    }
+    a64_ret(cg.code, A64_LR);
+}

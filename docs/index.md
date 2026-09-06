@@ -10,9 +10,10 @@ permalink: /
 
 **Gat** is a self-hosted, low-level systems programming language designed for mechanical sympathy, deterministic memory safety, and uncompromising native performance.
 
-It compiles directly into standalone **x86-64 machine code** with zero external dependencies:
-- **Windows**: Native PE32+ executables linked directly against `kernel32.dll`.
-- **Linux**: Standalone ELF64 binaries using raw Linux kernel syscalls—**zero libc or dynamic linker required**.
+It compiles directly into standalone native machine code with zero external toolchain requirements:
+- **macOS Apple Silicon**: Native Mach-O 64-bit ARM64 objects with direct Darwin syscalls (`sys_mmap`, `sys_write`, `sys_open`, `sys_close`).
+- **Linux (x86-64 & ARM64)**: Standalone ELF64 binaries using raw Linux kernel syscalls—**zero libc or dynamic linker required**.
+- **Windows (x86-64)**: Native PE32+ executables linked directly against `kernel32.dll`.
 
 ```rust
 // A complete, runnable Gat program
@@ -32,7 +33,7 @@ Gat provides precise control over data placement:
 - **`class` (Reference Types)**: Managed via deterministic **Automatic Reference Counting (ARC)**. When the reference count reaches zero, memory is reclaimed immediately without unpredictable garbage-collection pauses.
 - **Weak References (`weak T`)**: First-class non-owning references break cyclic structures safely.
 
-### 2. Zero-Dependency Direct-Syscall Linux Binaries
+### 2. Zero-Dependency Direct-Syscall Linux & macOS Binaries
 Unlike languages that require `glibc`, `musl`, or dynamic linkers, Gat's Linux backend emits raw `syscall` instructions directly for:
 - Memory allocation (`sys_mmap` / `sys_munmap`)
 - File and console I/O (`sys_read`, `sys_write`, `sys_open`, `sys_close`, `sys_stat`)
@@ -40,13 +41,13 @@ Unlike languages that require `glibc`, `musl`, or dynamic linkers, Gat's Linux b
 - Futex-backed or atomic CAS synchronization primitives
 - Sockets & TCP Networking (`sys_socket`, `sys_connect`, `sys_bind`, `sys_listen`, `sys_accept`, `sys_sendto`, `sys_recvfrom`)
 
-A binary compiled with `gat build app.gat -o app --target=linux` runs on **any 64-bit Linux kernel** with zero shared library dependencies.
+On macOS Apple Silicon (ARM64), Gat emits native Mach-O object files utilizing Darwin `SVC #0x80` direct kernel syscalls, ensuring maximum efficiency without runtime baggage.
 
 ### 3. Fully Self-Hosted with Bitwise-Identical Stage Verification
 Gat is 100% written in Gat (`src/compiler.gat`). Every build is validated via a multi-stage bootstrap pipeline:
 1. `gatc` compiles `src/compiler.gat` &rarr; `gatc-stage2`
 2. `gatc-stage2` compiles `src/compiler.gat` &rarr; `gatc-stage3`
-3. A bitwise comparison (`fc /b` or `cmp`) proves that `gatc-stage2` and `gatc-stage3` are **100% bitwise identical**, proving compiler determinism and self-hosting correctness on both Windows and Linux.
+3. A bitwise comparison (`fc /b` or `cmp`) proves that `gatc-stage2` and `gatc-stage3` are **100% bitwise identical**, proving compiler determinism and self-hosting correctness on Windows, Linux, and macOS.
 
 ### 4. Zero-Friction Native Toolchain
 - **Built-in Package Manager**: `gat init`, `gat add`, `gat install` with lockfile verification (`gat.mod` & `gat.lock`).
@@ -60,15 +61,17 @@ Gat is 100% written in Gat (`src/compiler.gat`). Every build is validated via a 
 
 ### Download Pre-Built Binaries
 Grab the latest release archive from [GitHub Releases](https://github.com/DanielcoderX/gat/releases/latest):
-- **Windows**: `gat-v0.2.0-windows-x64.zip`
-- **Linux**: `gat-v0.2.0-linux-x64.tar.gz`
+- **Windows x86-64**: `gat-v0.3.0-windows-x64.zip`
+- **Linux x86-64**: `gat-v0.3.0-linux-x64.tar.gz`
+- **Linux ARM64**: `gat-v0.3.0-linux-arm64.tar.gz`
+- **macOS ARM64**: `gat-v0.3.0-macos-arm64.tar.gz`
 
 ### Run Your First Program
 ```powershell
 # Windows
 .\bin\gat.exe run examples\showcase\01_hello_world.gat
 
-# Linux
+# Linux & macOS
 ./bin/gat run examples/showcase/01_hello_world.gat
 ```
 
@@ -78,7 +81,10 @@ Grab the latest release archive from [GitHub Releases](https://github.com/Daniel
 .\bin\gat.exe build app.gat -o app.exe
 
 # Build Linux ELF64 (Cross-compile or Native)
-.\bin\gat.exe build app.gat -o app --target=linux
+./bin/gat build app.gat -o app --target=linux
+
+# Build macOS Apple Silicon (Native Mach-O)
+./bin/gat build app.gat -o app --target=macos-arm64
 ```
 
 ---
@@ -90,5 +96,5 @@ Grab the latest release archive from [GitHub Releases](https://github.com/Daniel
 - [**Language Specification**](LANGUAGE_SPEC.html): Syntax, keywords, types, control flow, memory model, and EBNF grammar.
 - [**Standard Library**](STDLIB.html): Built-in modules (`std/str.gat`, `std/fs.gat`, `std/math.gat`, `std/process.gat`, etc.).
 - [**Module System**](MODULES.html): Namespaced imports, aliases, collision avoidance, and project layout.
-- [**Dual Backend Guide**](dual_backend.html): Deep dive into PE32+ kernel32 IAT and direct Linux syscall emission.
-- [**Contributing Guide**](CONTRIBUTING.html): Development workflow, running `test.ps1`, and PR conventions.
+- [**Multi-Backend Architecture**](dual_backend.html): Deep dive into PE32+ kernel32 IAT, direct Linux syscalls, and Darwin Mach-O ARM64 emission.
+- [**Contributing Guide**](CONTRIBUTING.html): Development workflow, running test suites, and PR conventions.

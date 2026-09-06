@@ -1,0 +1,18 @@
+import "src/tokens.gat";
+import "src/ast.gat";
+import "src/buffer.gat";
+import "src/lexer.gat";
+import "src/parser.gat";
+import "src/typecheck.gat";
+import "src/ir.gat";
+import "src/opt.gat";
+import "src/regalloc.gat";
+import "src/target.gat";
+
+fn main() -> i64 {
+    print("testing read_file...\n");
+    let content = read_file("examples/hello.gat");
+    print("read_file returned len: ", str_len(content), "\n");
+    print("content:\n", content, "\n");
+    return 0;
+}

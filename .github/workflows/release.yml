@@ -68,9 +68,13 @@ jobs:
           & .\bin\gatc.exe src\compiler.gat -o bin\gatc.exe
           & .\bin\gatc.exe cli\gat.gat -o bin\gat.exe
 
-          # 2. Cross-Compile Native Linux Binaries
-          & .\bin\gat.exe build src\compiler.gat -o bin\gatc --target=linux
-          & .\bin\gat.exe build cli\gat.gat -o bin\gat --target=linux
+          # 2. Cross-Compile Native Linux x64 Binaries
+          & .\bin\gat.exe build src\compiler.gat -o bin\gatc-linux-x64 --target=linux
+          & .\bin\gat.exe build cli\gat.gat -o bin\gat-linux-x64 --target=linux
+
+          # 3. Cross-Compile Native Linux ARM64 Binaries
+          & .\bin\gat.exe build src\compiler.gat -o bin\gatc-linux-arm64 --target=linux-arm64
+          & .\bin\gat.exe build cli\gat.gat -o bin\gat-linux-arm64 --target=linux-arm64
 
       - name: Package Release Archives
         shell: bash
@@ -79,29 +83,78 @@ jobs:
           DIST_DIR="dist"
           mkdir -p "${DIST_DIR}"
 
-          # Windows Package
+          # Windows x64 Package
           WIN_PKG_NAME="gat-${VER}-windows-x64"
           mkdir -p "${WIN_PKG_NAME}/bin"
           cp bin/gat.exe bin/gatc.exe "${WIN_PKG_NAME}/bin/"
           cp -r std docs examples README.md LICENSE "${WIN_PKG_NAME}/"
           7z a "${DIST_DIR}/${WIN_PKG_NAME}.zip" "${WIN_PKG_NAME}"
 
-          # Linux Package
+          # Linux x64 Package
           LINUX_PKG_NAME="gat-${VER}-linux-x64"
           mkdir -p "${LINUX_PKG_NAME}/bin"
-          cp bin/gat bin/gatc "${LINUX_PKG_NAME}/bin/"
+          cp bin/gat-linux-x64 "${LINUX_PKG_NAME}/bin/gat"
+          cp bin/gatc-linux-x64 "${LINUX_PKG_NAME}/bin/gatc"
           cp -r std docs examples README.md LICENSE "${LINUX_PKG_NAME}/"
           tar -czvf "${DIST_DIR}/${LINUX_PKG_NAME}.tar.gz" "${LINUX_PKG_NAME}"
 
-          # Compute SHA256 Checksums
-          cd "${DIST_DIR}"
-          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          # Linux ARM64 Package
+          LINUX_ARM_PKG="gat-${VER}-linux-arm64"
+          mkdir -p "${LINUX_ARM_PKG}/bin"
+          cp bin/gat-linux-arm64 "${LINUX_ARM_PKG}/bin/gat"
+          cp bin/gatc-linux-arm64 "${LINUX_ARM_PKG}/bin/gatc"
+          cp -r std docs examples README.md LICENSE "${LINUX_ARM_PKG}/"
+          tar -czvf "${DIST_DIR}/${LINUX_ARM_PKG}.tar.gz" "${LINUX_ARM_PKG}"
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-artifacts
+          name: release-artifacts-windows-linux
+          path: dist/*
+          if-no-files-found: error
+
+  build-macos:
+    name: Build & Verify macOS ARM64 Toolchain
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine Version
+        id: get_version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VER="${{ github.event.inputs.version }}"
+          else
+            VER="${GITHUB_REF_NAME}"
+          fi
+          echo "version=${VER}" >> $GITHUB_OUTPUT
+
+      - name: Verify macOS ARM64 Self-Hosting & Feature Tests
+        run: |
+          chmod +x bin/gatc bin/gat
+          chmod +x test_macos.sh
+          ./test_macos.sh
+
+      - name: Package macOS ARM64 Archive
+        shell: bash
+        run: |
+          VER="${{ steps.get_version.outputs.version }}"
+          DIST_DIR="dist"
+          mkdir -p "${DIST_DIR}"
+
+          MACOS_PKG_NAME="gat-${VER}-macos-arm64"
+          mkdir -p "${MACOS_PKG_NAME}/bin"
+          cp bin/gat bin/gatc "${MACOS_PKG_NAME}/bin/"
+          cp -r std docs examples README.md LICENSE "${MACOS_PKG_NAME}/"
+          tar -czvf "${DIST_DIR}/${MACOS_PKG_NAME}.tar.gz" "${MACOS_PKG_NAME}"
+
+      - name: Upload macOS Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-macos
           path: dist/*
           if-no-files-found: error
 
@@ -117,7 +170,7 @@ jobs:
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: release-artifacts
+          name: release-artifacts-windows-linux
           path: dist
 
       - name: Extract Linux Archive & Smoke Test Native Toolchain
@@ -155,7 +208,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
-    needs: [build-and-package, verify-linux-native]
+    needs: [build-and-package, build-macos, verify-linux-native]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -165,11 +218,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Release Artifacts
+      - name: Download Windows & Linux Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: release-artifacts
+          name: release-artifacts-windows-linux
           path: dist
+
+      - name: Download macOS Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts-macos
+          path: dist
+
+      - name: Compute Checksums
+        run: |
+          cd dist
+          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Determine Release Tag & Name
         id: release_meta
@@ -197,11 +262,12 @@ jobs:
           body: |
             # Gat Programming Language Release ${{ steps.release_meta.outputs.tag }}
 
-            `gat` is a self-hosted, statically typed systems programming language featuring automatic reference counting (ARC), direct machine code emission, and 100% bitwise-reproducible self-hosting across Windows and Linux.
+            `gat` is a self-hosted, statically typed systems programming language featuring automatic reference counting (ARC), direct machine code emission, and 100% bitwise-reproducible self-hosting across Windows, Linux, and macOS.
 
             ## Highlights & Features in this Release
-            - **100% Self-Hosting on Windows and Linux**: Native bitwise-reproducible compiler bootstraps identically on Windows (PE32+) and Linux (ELF64).
-            - **Zero-Dependency Direct Syscall Linux Target**: Emits static ELF64 executables utilizing direct Linux kernel syscalls (`mmap`, `nanosleep`, `open`, `read`, `write`, `fork`, `execve`, `clone`), requiring no libc or external linker.
+            - **Native macOS Apple Silicon (ARM64) Support**: Direct Mach-O 64-bit object emission (`MH_OBJECT`, `CPU_TYPE_ARM64`), native Darwin syscall dispatch via `SVC #0x80`, and 100% bitwise-reproducible self-hosting on macOS.
+            - **100% Self-Hosting on Windows, Linux, and macOS**: Native bitwise-reproducible compiler bootstraps identically across Windows (PE32+), Linux (ELF64 x86-64 & ARM64), and macOS (Mach-O ARM64).
+            - **Zero-Dependency Direct Syscall Linux Target**: Emits static ELF64 executables utilizing direct Linux kernel syscalls (`mmap`, `nanosleep`, `open`, `read`, `write`, `fork`, `execve`, `clone`), requiring no libc or external linker on x86-64 and aarch64.
             - **Direct Windows Native Target**: Direct PE executable emission using `KERNEL32.dll` dynamic imports without external toolchain dependencies.
             - **Dual Memory Model**: Value `struct`s, ARC reference-counted `class`es with `deinit` destructors, non-owning `weak T` references, and unsafe `raw T` pointers.
             - **Linear-Scan Register Allocation & Optimization**: Live-interval register allocator combined with constant folding, dead-code elimination (DCE), and ARC retain/release elision.

@@ -18,8 +18,10 @@ This guide walks you through setting up the Gat compiler, writing your first pro
 Download the latest pre-compiled archive for your OS from [Releases](https://github.com/DanielcoderX/gat/releases/latest):
 
 1. **Extract the archive**:
-   - On Windows: Extract `gat-v0.1.0-windows-x64.zip` to a folder (e.g. `C:\tools\gat`).
-   - On Linux: Extract `gat-v0.1.0-linux-x64.tar.gz` (`tar -xzf gat-v0.1.0-linux-x64.tar.gz -C ~/.local/`).
+   - On Windows: Extract `gat-v0.3.0-windows-x64.zip` to a folder (e.g. `C:\tools\gat`).
+   - On Linux x86-64: Extract `gat-v0.3.0-linux-x64.tar.gz` (`tar -xzf gat-v0.3.0-linux-x64.tar.gz -C ~/.local/`).
+   - On Linux ARM64: Extract `gat-v0.3.0-linux-arm64.tar.gz` (`tar -xzf gat-v0.3.0-linux-arm64.tar.gz -C ~/.local/`).
+   - On macOS ARM64: Extract `gat-v0.3.0-macos-arm64.tar.gz` (`tar -xzf gat-v0.3.0-macos-arm64.tar.gz -C ~/.local/`).
 2. **Add `bin/` to your PATH**:
    - The archive contains `bin/gat` (the CLI driver) and `bin/gatc` (the core compiler).
 
@@ -31,9 +33,12 @@ cd gat
 ```
 
 Run the automated test and bootstrap suite:
-```powershell
+```bash
 # On Windows
-.\test.ps1
+powershell -ExecutionPolicy Bypass -File .\test.ps1
+
+# On macOS ARM64
+./test_macos.sh
 ```
 
 ---
@@ -52,30 +57,44 @@ fn main() -> i64 {
 
 ### Running Directly
 You can run any `.gat` file directly with the CLI driver:
-```powershell
+```bash
 gat run hello.gat
 ```
 This compiles the code into a temporary native executable, runs it, forwards arguments and exit codes, and cleans up automatically.
 
 ### Compiling to Native Executable
 To produce an optimized, standalone binary:
-```powershell
+```bash
+# Windows
 gat build hello.gat -o hello.exe
+
+# macOS Apple Silicon
+gat build hello.gat -o hello --target=macos-arm64
+
+# Linux
+gat build hello.gat -o hello --target=linux
 ```
 
 Run the resulting binary:
-```powershell
-.\hello.exe
+```bash
+./hello
 ```
 
 ---
 
-## 3. Cross-Compiling for Linux
+## 3. Cross-Compiling & Targets
 
-Gat includes built-in dual backends. Without installing cross-compilers or GCC toolchains, you can emit raw Linux ELF64 binaries directly:
+Gat includes built-in multi-platform backends. Without installing foreign cross-compilers or GCC toolchains, you can emit raw binaries directly:
 
-```powershell
+```bash
+# Cross-compile for Linux x86-64 ELF
 gat build hello.gat -o hello_linux --target=linux
+
+# Cross-compile for Linux ARM64 ELF
+gat build hello.gat -o hello_arm64 --target=linux-arm64
+
+# Target macOS Apple Silicon Mach-O
+gat build hello.gat -o hello_macos --target=macos-arm64
 ```
 
 Transfer `hello_linux` to any x86-64 Linux server or WSL distribution:
