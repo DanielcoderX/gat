@@ -968,6 +968,189 @@ fn cg_arm64_emit_runtime(cg: CodeGen) {
         a64_mov_imm(cg.code, A64_X8, 94);
         a64_svc(cg.code);
     }
+
+    // Networking Runtime (Linux ARM64 raw syscalls & macOS Apple Silicon Darwin syscalls)
+    cg_arm64_emit_net_runtime(cg);
+}
+
+// ----------------------------------------------------------------------------
+// AArch64 Networking Runtime Helpers
+// ----------------------------------------------------------------------------
+
+fn cg_arm64_emit_net_runtime(cg: CodeGen) {
+    // 1. __gat_net_socket(x0: family, x1: type, x2: proto) -> x0
+    cg_define_sym(cg, "__gat_net_socket");
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 97); // sys_socket = 97 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 198); // sys_socket = 198 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+    a64_ret(cg.code, A64_LR);
+
+    // 2. __gat_net_close(x0: fd) -> x0
+    cg_define_sym(cg, "__gat_net_close");
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 6);  // sys_close = 6 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 57); // sys_close = 57 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+    a64_ret(cg.code, A64_LR);
+
+    // 3. __gat_net_listen(x0: fd, x1: backlog) -> x0
+    cg_define_sym(cg, "__gat_net_listen");
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 106); // sys_listen = 106 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 201); // sys_listen = 201 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+    a64_ret(cg.code, A64_LR);
+
+    // 4. __gat_net_accept(x0: fd) -> x0
+    cg_define_sym(cg, "__gat_net_accept");
+    a64_mov_imm(cg.code, A64_X1, 0); // addr = NULL
+    a64_mov_imm(cg.code, A64_X2, 0); // addrlen = NULL
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 30); // sys_accept = 30 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 202); // sys_accept = 202 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+    a64_ret(cg.code, A64_LR);
+
+    // 5. __gat_net_send(x0: fd, x1: data, x2: len) -> x0
+    cg_define_sym(cg, "__gat_net_send");
+    a64_mov_imm(cg.code, A64_X3, 0); // flags = 0
+    a64_mov_imm(cg.code, A64_X4, 0); // dest_addr = NULL
+    a64_mov_imm(cg.code, A64_X5, 0); // addrlen = 0
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 133); // sys_sendto = 133 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 206); // sys_sendto = 206 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+    a64_ret(cg.code, A64_LR);
+
+    // 6. __gat_net_recv(x0: fd, x1: buf, x2: max_len) -> x0
+    cg_define_sym(cg, "__gat_net_recv");
+    a64_mov_imm(cg.code, A64_X3, 0); // flags = 0
+    a64_mov_imm(cg.code, A64_X4, 0); // src_addr = NULL
+    a64_mov_imm(cg.code, A64_X5, 0); // addrlen = NULL
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 29); // sys_recvfrom = 29 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 207); // sys_recvfrom = 207 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+    a64_ret(cg.code, A64_LR);
+
+    // 7. __gat_net_connect(x0: fd, x1: ip_u32, x2: port) -> x0
+    cg_define_sym(cg, "__gat_net_connect");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+    // Build sockaddr_in (16 bytes) at [FP+16]:
+    // zero 16 bytes:
+    a64_str_imm(cg.code, A64_XZR, A64_FP, 16);
+    a64_str_imm(cg.code, A64_XZR, A64_FP, 24);
+
+    if target_is_macos(cg.target) {
+        // macOS Darwin: sin_len (1 byte) = 16, sin_family (1 byte) = 2
+        // halfword = 2 | (16 << 8) = 2 | 4096 = 4098
+        a64_mov_imm(cg.code, A64_X9, 4098);
+        a64_strh_imm(cg.code, A64_X9, A64_FP, 16);
+    } else {
+        // Linux: sin_family (2 bytes) = 2
+        a64_mov_imm(cg.code, A64_X9, 2);
+        a64_strh_imm(cg.code, A64_X9, A64_FP, 16);
+    }
+
+    // Network byte order for 16-bit port: (port & 0xFF) << 8 | (port >> 8)
+    a64_and_reg(cg.code, A64_X9, A64_X2, A64_X2); // port
+    a64_mov_imm(cg.code, A64_X10, 255);
+    a64_and_reg(cg.code, A64_X11, A64_X9, A64_X10); // x11 = port & 0xFF
+    a64_mov_imm(cg.code, A64_X12, 8);
+    a64_lsl_reg(cg.code, A64_X11, A64_X11, A64_X12); // (port & 0xFF) << 8
+    a64_lsr_reg(cg.code, A64_X13, A64_X9, A64_X12);  // (port >> 8) & 0xFF
+    a64_orr_reg(cg.code, A64_X11, A64_X11, A64_X13); // be_port
+    a64_strh_imm(cg.code, A64_X11, A64_FP, 18);     // sin_port at FP+18
+
+    // IPv4 address in x1 (ip_u32)
+    a64_str_w_imm(cg.code, A64_X1, A64_FP, 20);      // sin_addr at FP+20
+
+    // sys_connect(fd: x0, addr: FP+16, addrlen: 16)
+    a64_add_imm(cg.code, A64_X1, A64_FP, 16);
+    a64_mov_imm(cg.code, A64_X2, 16);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 98); // sys_connect = 98 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 203); // sys_connect = 203 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+
+    // 8. __gat_net_bind(x0: fd, x1: ip_u32, x2: port) -> x0
+    cg_define_sym(cg, "__gat_net_bind");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+    // Build sockaddr_in (16 bytes) at [FP+16]:
+    a64_str_imm(cg.code, A64_XZR, A64_FP, 16);
+    a64_str_imm(cg.code, A64_XZR, A64_FP, 24);
+
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X9, 4098); // sin_len=16, sin_family=2
+        a64_strh_imm(cg.code, A64_X9, A64_FP, 16);
+    } else {
+        a64_mov_imm(cg.code, A64_X9, 2);    // sin_family=2
+        a64_strh_imm(cg.code, A64_X9, A64_FP, 16);
+    }
+
+    // Network byte order for 16-bit port
+    a64_and_reg(cg.code, A64_X9, A64_X2, A64_X2);
+    a64_mov_imm(cg.code, A64_X10, 255);
+    a64_and_reg(cg.code, A64_X11, A64_X9, A64_X10);
+    a64_mov_imm(cg.code, A64_X12, 8);
+    a64_lsl_reg(cg.code, A64_X11, A64_X11, A64_X12);
+    a64_lsr_reg(cg.code, A64_X13, A64_X9, A64_X12);
+    a64_orr_reg(cg.code, A64_X11, A64_X11, A64_X13);
+    a64_strh_imm(cg.code, A64_X11, A64_FP, 18);
+
+    // IPv4 address in x1 (ip_u32)
+    a64_str_w_imm(cg.code, A64_X1, A64_FP, 20);
+
+    // sys_bind(fd: x0, addr: FP+16, addrlen: 16)
+    a64_add_imm(cg.code, A64_X1, A64_FP, 16);
+    a64_mov_imm(cg.code, A64_X2, 16);
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 104); // sys_bind = 104 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 200); // sys_bind = 200 (Linux AArch64)
+        a64_svc(cg.code);
+    }
+
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
 }
 
 // ----------------------------------------------------------------------------
@@ -1164,6 +1347,14 @@ fn cg_arm64_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             else if str_eq(callee, "weak_release") { callee = "__gat_weak_release"; }
             else if str_eq(callee, "strong_count") { callee = "__gat_strong_count"; }
             else if str_eq(callee, "weak_count") { callee = "__gat_weak_count"; }
+            else if str_eq(callee, "net_socket") { callee = "__gat_net_socket"; }
+            else if str_eq(callee, "net_connect") { callee = "__gat_net_connect"; }
+            else if str_eq(callee, "net_bind") { callee = "__gat_net_bind"; }
+            else if str_eq(callee, "net_listen") { callee = "__gat_net_listen"; }
+            else if str_eq(callee, "net_accept") { callee = "__gat_net_accept"; }
+            else if str_eq(callee, "net_send") { callee = "__gat_net_send"; }
+            else if str_eq(callee, "net_recv") { callee = "__gat_net_recv"; }
+            else if str_eq(callee, "net_close") { callee = "__gat_net_close"; }
 
             cg_arm64_call_sym(cg, callee);
             if inst.dest != 0 {

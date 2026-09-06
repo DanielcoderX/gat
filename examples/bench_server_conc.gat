@@ -1,0 +1,31 @@
+import "std/net.gat";
+import "std/http.gat";
+import "std/str.gat";
+import "std/result.gat";
+
+fn handle_bench(req: HttpRequest) -> HttpResponse {
+    return http_resp_ok("bench-ok");
+}
+
+fn main() -> i64 {
+    let router = http_router_new();
+    http_router_get(router, "/bench", handle_bench);
+
+    let port: i64 = 19892;
+    let bind_res = http_server_bind("127.0.0.1", port, router);
+    if result_is_err(bind_res) {
+        print("fail: bind server\n");
+        return 1;
+    }
+    let server: HttpServer = result_unwrap(bind_res);
+
+    let active_tracker: raw i64 = alloc_mem(8);
+    active_tracker[0] = 0;
+
+    print("READY\n");
+
+    while server.is_running {
+        http_server_handle_one_concurrent(server, active_tracker, 64);
+    }
+    return 0;
+}

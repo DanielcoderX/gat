@@ -1,0 +1,26 @@
+import "std/net.gat";
+import "std/http.gat";
+import "std/str.gat";
+import "std/result.gat";
+import "std/process.gat";
+
+fn handle_slow(req: HttpRequest) -> HttpResponse {
+    proc_sleep(10); // 10ms simulated work/IO
+    return http_resp_ok("done");
+}
+
+fn main() -> i64 {
+    let router = http_router_new();
+    http_router_get(router, "/bench", handle_slow);
+
+    let port: i64 = 19893;
+    let bind_res = http_server_bind("127.0.0.1", port, router);
+    if result_is_err(bind_res) {
+        return 1;
+    }
+    let server: HttpServer = result_unwrap(bind_res);
+    while server.is_running {
+        http_server_handle_one(server);
+    }
+    return 0;
+}

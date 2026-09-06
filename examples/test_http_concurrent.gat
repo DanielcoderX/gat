@@ -1,0 +1,110 @@
+import "std/net.gat";
+import "std/http.gat";
+import "std/thread.gat";
+import "std/process.gat";
+import "std/str.gat";
+import "std/result.gat";
+
+fn handle_ping(req: HttpRequest) -> HttpResponse {
+    return http_resp_ok("pong");
+}
+
+struct ClientArgs {
+    port: i64;
+    status: raw i64;
+}
+
+fn client_worker(args: raw ClientArgs) {
+    let stream = tcp_connect("127.0.0.1", args.port);
+    if stream == nil {
+        args.status[0] = 1;
+        return;
+    }
+    let req = "GET /ping HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    tcp_send(stream, req);
+    let resp = tcp_recv(stream, 1024);
+    tcp_close(stream);
+    if str_len(resp) <= 0 {
+        args.status[0] = 2;
+        return;
+    }
+    args.status[0] = 0;
+}
+
+fn main() -> i64 {
+    let router = http_router_new();
+    http_router_get(router, "/ping", handle_ping);
+
+    let port: i64 = 19890;
+    let bind_res = http_server_bind("127.0.0.1", port, router);
+    if result_is_err(bind_res) {
+        print("fail: bind server\n");
+        return 1;
+    }
+    let server: HttpServer = result_unwrap(bind_res);
+
+    // Track concurrent active connections
+    let tracker: raw i64 = alloc_mem(8);
+    tracker[0] = 0;
+
+    let s1: raw i64 = alloc_mem(8);
+    let s2: raw i64 = alloc_mem(8);
+    let s3: raw i64 = alloc_mem(8);
+    let s4: raw i64 = alloc_mem(8);
+    s1[0] = 0 - 1;
+    s2[0] = 0 - 1;
+    s3[0] = 0 - 1;
+    s4[0] = 0 - 1;
+
+    let a1 = new ClientArgs { port: port, status: s1 };
+    let a2 = new ClientArgs { port: port, status: s2 };
+    let a3 = new ClientArgs { port: port, status: s3 };
+    let a4 = new ClientArgs { port: port, status: s4 };
+
+    // Concurrently handle 4 requests
+    let t1 = thread_spawn(client_worker, a1);
+    let t2 = thread_spawn(client_worker, a2);
+    let t3 = thread_spawn(client_worker, a3);
+    let t4 = thread_spawn(client_worker, a4);
+
+    let handled: i64 = 0;
+    while handled < 4 {
+        let ok = http_server_handle_one_concurrent(server, tracker, 16);
+        if ok {
+            handled = handled + 1;
+        }
+    }
+
+    thread_join(t1);
+    thread_join(t2);
+    thread_join(t3);
+    thread_join(t4);
+
+    // Wait briefly for all active connection workers to finish
+    let wait_count: i64 = 0;
+    while tracker[0] > 0 && wait_count < 100 {
+        proc_sleep(5);
+        wait_count = wait_count + 1;
+    }
+
+    http_server_stop(server);
+
+    let r1 = s1[0];
+    let r2 = s2[0];
+    let r3 = s3[0];
+    let r4 = s4[0];
+
+    free_mem(tracker);
+    free_mem(s1);
+    free_mem(s2);
+    free_mem(s3);
+    free_mem(s4);
+
+    if r1 != 0 || r2 != 0 || r3 != 0 || r4 != 0 {
+        print("fail client statuses: ", r1, " ", r2, " ", r3, " ", r4, "\n");
+        return 2;
+    }
+
+    print("test_http_concurrent: PASS\n");
+    return 0;
+}

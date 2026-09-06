@@ -8,6 +8,8 @@ import "std/map.gat";
 import "std/result.gat";
 import "std/net.gat";
 import "std/json.gat";
+import "std/thread.gat";
+import "std/sync.gat";
 
 // ============================================================================
 // HTTP Headers (Case-Insensitive Storage)
@@ -659,6 +661,94 @@ fn http_server_handle_one(server: HttpServer) -> bool {
         tcp_send(client, wire_resp);
     }
     tcp_close(client);
+    return true;
+}
+
+// ----------------------------------------------------------------------------
+// Concurrent HTTP Server (Thread-per-Connection with Safe Raw FD Handoff)
+// ----------------------------------------------------------------------------
+
+struct HttpConnContext {
+    fd: i64;
+    router: raw HttpRouter;
+    active_count: raw i64;
+}
+
+fn http_conn_worker(ctx: raw HttpConnContext) {
+    if ctx == nil { return; }
+    let client_fd = ctx.fd;
+    let r_ptr = ctx.router;
+    let act_ptr = ctx.active_count;
+    free_mem(ctx);
+
+    if client_fd < 0 {
+        if act_ptr != nil { act_ptr[0] = act_ptr[0] - 1; }
+        return;
+    }
+
+    // Reconstruct local TcpStream inside this thread
+    let stream = new TcpStream { fd: client_fd };
+
+    let raw_req = tcp_recv(stream, 16384);
+    if str_len(raw_req) > 0 {
+        let parsed = http_parse_request(raw_req);
+        let resp: HttpResponse = nil;
+        if result_is_err(parsed) {
+            resp = http_resp_bad_request(result_unwrap_err(parsed));
+        } else {
+            let req: HttpRequest = result_unwrap(parsed);
+            let local_router: HttpRouter = r_ptr;
+            resp = http_router_dispatch(local_router, req);
+        }
+        let wire_resp = http_format_response(resp);
+        tcp_send(stream, wire_resp);
+    }
+
+    tcp_close(stream);
+
+    if act_ptr != nil {
+        act_ptr[0] = act_ptr[0] - 1;
+    }
+}
+
+// Handle an incoming connection concurrently on a new thread.
+// `active_tracker` is an optional raw i64 counter tracking in-flight threads.
+// `max_concurrent` caps the maximum active connection threads (default 64 if <= 0).
+fn http_server_handle_one_concurrent(server: HttpServer, active_tracker: raw i64, max_concurrent: i64) -> bool {
+    if server == nil || !server.is_running { return false; }
+    let cap = max_concurrent;
+    if cap <= 0 { cap = 64; }
+
+    // Connection throttling check: if cap reached, back off slightly
+    if active_tracker != nil {
+        while active_tracker[0] >= cap && server.is_running {
+            sleep(2);
+        }
+    }
+
+    let raw_fd = tcp_accept_raw(server.listener);
+    if raw_fd < 0 {
+        return false;
+    }
+
+    if active_tracker != nil {
+        active_tracker[0] = active_tracker[0] + 1;
+    }
+
+    let ctx: raw HttpConnContext = alloc_mem(24);
+    ctx.fd = raw_fd;
+    ctx.router = server.router;
+    ctx.active_count = active_tracker;
+
+    let th = thread_spawn(http_conn_worker, ctx);
+    if th == 0 {
+        // If thread spawn failed, handle locally as fallback
+        let stream = new TcpStream { fd: raw_fd };
+        tcp_close(stream);
+        if active_tracker != nil {
+            active_tracker[0] = active_tracker[0] - 1;
+        }
+    }
     return true;
 }
 

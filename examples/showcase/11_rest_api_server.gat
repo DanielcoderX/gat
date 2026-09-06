@@ -113,12 +113,16 @@ fn rest_server_worker(cfg_ptr: raw ServerConfig) {
     }
     let server: HttpServer = result_unwrap(server_res);
 
+    let active_tracker: raw i64 = alloc_mem(8);
+    active_tracker[0] = 0;
+
     cfg_ptr.ready[0] = 1;
 
     while cfg_ptr.stop[0] == 0 {
-        http_server_handle_one(server);
+        http_server_handle_one_concurrent(server, active_tracker, 32);
     }
     http_server_stop(server);
+    free_mem(active_tracker);
 }
 
 fn main() -> i64 {

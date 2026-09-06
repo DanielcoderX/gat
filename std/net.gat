@@ -170,6 +170,16 @@ fn tcp_accept(listener: TcpListener) -> TcpStream {
     return new TcpStream { fd: client_sock };
 }
 
+// Accept the next incoming connection and return the raw integer socket fd.
+// Safe for cross-thread handoff in thread-per-connection servers.
+// Returns -1 on error.
+fn tcp_accept_raw(listener: TcpListener) -> i64 {
+    if listener == nil || listener.fd < 0 {
+        return 0 - 1;
+    }
+    return net_accept(listener.fd);
+}
+
 // Explicitly close a TCP listener.
 fn tcp_listener_close(listener: TcpListener) {
     if listener != nil && listener.fd >= 0 {

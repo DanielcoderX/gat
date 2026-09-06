@@ -97,4 +97,5 @@ Grab the latest release archive from [GitHub Releases](https://github.com/Daniel
 - [**Standard Library**](STDLIB.html): Built-in modules (`std/str.gat`, `std/fs.gat`, `std/math.gat`, `std/process.gat`, etc.).
 - [**Module System**](MODULES.html): Namespaced imports, aliases, collision avoidance, and project layout.
 - [**Multi-Backend Architecture**](dual_backend.html): Deep dive into PE32+ kernel32 IAT, direct Linux syscalls, and Darwin Mach-O ARM64 emission.
+- [**Performance Benchmarks**](BENCHMARKS.html): Reproducible load benchmarks for concurrent HTTP serving.
 - [**Contributing Guide**](CONTRIBUTING.html): Development workflow, running test suites, and PR conventions.

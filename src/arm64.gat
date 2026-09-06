@@ -247,6 +247,34 @@ fn a64_strb_idx(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
     a64_emit(code, inst);
 }
 
+// LDRH Wd, [Xn, #pimm] (scaled by 2)
+fn a64_ldrh_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
+    let scale = (offset / 2) % 4096;
+    let inst: i64 = 2033221632 + (scale * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// STRH Wd, [Xn, #pimm] (scaled by 2)
+fn a64_strh_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
+    let scale = (offset / 2) % 4096;
+    let inst: i64 = 2030075904 + (scale * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// LDR Wd, [Xn, #pimm] (32-bit, scaled by 4)
+fn a64_ldr_w_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
+    let scale = (offset / 4) % 4096;
+    let inst: i64 = 3106979840 + (scale * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
+// STR Wd, [Xn, #pimm] (32-bit, scaled by 4)
+fn a64_str_w_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
+    let scale = (offset / 4) % 4096;
+    let inst: i64 = 3103834112 + (scale * 1024) + (rn * 32) + rd;
+    a64_emit(code, inst);
+}
+
 // CMP Xn, Xm (SUBS XZR, Xn, Xm)
 fn a64_cmp_reg(code: ByteBuffer, rn: i64, rm: i64) {
     let inst: i64 = 3942645791 + (rm * 65536) + (rn * 32);

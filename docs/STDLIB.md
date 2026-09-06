@@ -238,7 +238,7 @@ Terminates the calling process with exit code `code`.
 
 Import: `import "std/net.gat";`
 
-Provides cross-platform socket primitives and high-level TCP abstractions powered by direct kernel syscalls on Linux (x86-64 `sys_socket`, `sys_connect`, `sys_bind`, `sys_listen`, `sys_accept`, `sys_sendto`, `sys_recvfrom`, `sys_close`) and dynamic Winsock (`ws2_32.dll`) resolution on Windows.
+Provides cross-platform socket primitives and high-level TCP abstractions powered by direct kernel syscalls on Linux x86-64 and ARM64 (`sys_socket`, `sys_connect`, `sys_bind`, `sys_listen`, `sys_accept`, `sys_sendto`, `sys_recvfrom`, `sys_close`), direct Darwin syscalls on macOS ARM64, and dynamic Winsock (`ws2_32.dll`) resolution on Windows.
 
 ### Classes
 
@@ -260,6 +260,9 @@ Binds to IPv4 host `ip` on `port` and starts listening for connections with a ba
 
 #### `tcp_accept(listener: TcpListener) -> TcpStream`
 Accepts the next incoming connection from `listener`. Returns a new `TcpStream` for bidirectional communication, or `nil` on error.
+
+#### `tcp_accept_raw(listener: TcpListener) -> i64`
+Accepts the next incoming connection from `listener` and returns the raw integer OS file descriptor/socket handle (`i64`). Safe for cross-thread boundary handoff in concurrent worker architectures.
 
 #### `tcp_send(stream: TcpStream, text: string) -> i64`
 Sends string `text` across `stream`. Returns number of bytes sent or negative error code.
@@ -555,5 +558,6 @@ fn main() -> i64 {
 * `http_router_put(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse)`
 * `http_router_delete(r: HttpRouter, path: string, handler: fn(HttpRequest) -> HttpResponse)`
 * `http_server_bind(ip: string, port: i64, router: HttpRouter) -> Result<HttpServer, string>`
-* `http_server_handle_one(server: HttpServer) -> bool` - Processes a single incoming connection.
+* `http_server_handle_one(server: HttpServer) -> bool` - Processes a single incoming connection synchronously.
+* `http_server_handle_one_concurrent(server: HttpServer, active_tracker: raw i64, max_concurrent: i64) -> bool` - Accepts a connection and delegates handling to a background thread via raw socket fd handoff. Throttles at `max_concurrent` active connections.
 * `http_server_stop(server: HttpServer)` - Shuts down listener.

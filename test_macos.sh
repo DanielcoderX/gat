@@ -41,6 +41,9 @@ run_test "examples/test_features.gat" 0 "Formatted: 12345"
 run_test "examples/test_enum_match.gat" 0 "Array[0]: 10, Array[2]: 30"
 run_test "examples/test_cmd_arg.gat" 0 "Arg 1: hello"
 run_test "examples/test_wf.gat" 0 "written: 12"
+run_test "examples/test_net.gat" 0 "All Socket & Networking tests completed successfully!"
+run_test "examples/test_http.gat" 0 "All HTTP 1.1 tests completed successfully!"
+run_test "examples/test_http_concurrent.gat" 0 "test_http_concurrent: PASS"
 
 rm -f /tmp/test_bin test_out.txt
 
