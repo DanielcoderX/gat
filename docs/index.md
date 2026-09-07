@@ -61,10 +61,10 @@ Gat is 100% written in Gat (`src/compiler.gat`). Every build is validated via a 
 
 ### Download Pre-Built Binaries
 Grab the latest release archive from [GitHub Releases](https://github.com/DanielcoderX/gat/releases/latest):
-- **Windows x86-64**: `gat-v0.3.0-windows-x64.zip`
-- **Linux x86-64**: `gat-v0.3.0-linux-x64.tar.gz`
-- **Linux ARM64**: `gat-v0.3.0-linux-arm64.tar.gz`
-- **macOS ARM64**: `gat-v0.3.0-macos-arm64.tar.gz`
+- **Windows x86-64**: `gat-v1.0.0-windows-x64.zip`
+- **Linux x86-64**: `gat-v1.0.0-linux-x64.tar.gz`
+- **Linux ARM64**: `gat-v1.0.0-linux-arm64.tar.gz`
+- **macOS ARM64**: `gat-v1.0.0-macos-arm64.tar.gz`
 
 ### Run Your First Program
 ```powershell

@@ -102,7 +102,7 @@ fn compile_to_binary(src_path: string, out_path: string) -> bool {
 }
 
 fn print_usage() {
-    print("Gat Toolchain CLI v0.3.0\n\n");
+    print("Gat Toolchain CLI v1.0.0\n\n");
     print("Usage: gat <command> [options]\n\n");
     print("Commands:\n");
     print("  init [module_name]               Initialize a new gat.mod manifest\n");
@@ -330,7 +330,7 @@ fn main() -> i64 {
     }
 
     if str_eq(cmd, "version") || str_eq(cmd, "--version") || str_eq(cmd, "-v") {
-        print("Gat v0.3.0 (Pure Self-Hosting Native Compiler)\n");
+        print("Gat v1.0.0 (Pure Self-Hosting Native Compiler)\n");
         return 0;
     }
 

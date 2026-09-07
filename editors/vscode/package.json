@@ -2,7 +2,7 @@
   "name": "gat-language",
   "displayName": "Gat Language Support",
   "description": "Official Language Support & LSP for the Gat Programming Language",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "publisher": "gat-lang",
   "engines": {
     "vscode": "^1.75.0"

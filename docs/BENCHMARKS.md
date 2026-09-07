@@ -28,7 +28,7 @@ The concurrent HTTP server bridges this boundary safely:
 ## 2. Test Environment & Methodology
 
 - **Host Machine**: Windows 11 x64 / AMD Ryzen 7 / 32GB RAM
-- **Gat Compiler**: `gatc` v0.3.0 (Self-hosted Stage 3 bitwise verified)
+- **Gat Compiler**: `gatc` v1.0.0 (Self-hosted Stage 3 bitwise verified)
 - **Target Backend**: Windows x64 native (PE32+ Winsock2) & Linux x64 (zero libc ELF direct syscalls)
 - **Load Testing Tool**: Multithreaded Python benchmarking harness ([`tools/bench_http.py`](../tools/bench_http.py)) generating real TCP client threads with HTTP/1.1 keep-close requests.
 - **Load Profile**:

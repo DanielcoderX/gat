@@ -18,10 +18,10 @@ This guide walks you through setting up the Gat compiler, writing your first pro
 Download the latest pre-compiled archive for your OS from [Releases](https://github.com/DanielcoderX/gat/releases/latest):
 
 1. **Extract the archive**:
-   - On Windows: Extract `gat-v0.3.0-windows-x64.zip` to a folder (e.g. `C:\tools\gat`).
-   - On Linux x86-64: Extract `gat-v0.3.0-linux-x64.tar.gz` (`tar -xzf gat-v0.3.0-linux-x64.tar.gz -C ~/.local/`).
-   - On Linux ARM64: Extract `gat-v0.3.0-linux-arm64.tar.gz` (`tar -xzf gat-v0.3.0-linux-arm64.tar.gz -C ~/.local/`).
-   - On macOS ARM64: Extract `gat-v0.3.0-macos-arm64.tar.gz` (`tar -xzf gat-v0.3.0-macos-arm64.tar.gz -C ~/.local/`).
+   - On Windows: Extract `gat-v1.0.0-windows-x64.zip` to a folder (e.g. `C:\tools\gat`).
+   - On Linux x86-64: Extract `gat-v1.0.0-linux-x64.tar.gz` (`tar -xzf gat-v1.0.0-linux-x64.tar.gz -C ~/.local/`).
+   - On Linux ARM64: Extract `gat-v1.0.0-linux-arm64.tar.gz` (`tar -xzf gat-v1.0.0-linux-arm64.tar.gz -C ~/.local/`).
+   - On macOS ARM64: Extract `gat-v1.0.0-macos-arm64.tar.gz` (`tar -xzf gat-v1.0.0-macos-arm64.tar.gz -C ~/.local/`).
 2. **Add `bin/` to your PATH**:
    - The archive contains `bin/gat` (the CLI driver) and `bin/gatc` (the core compiler).
 
