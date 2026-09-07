@@ -18,6 +18,7 @@ import "src/codegen_arm64.gat";
 import "src/pe.gat";
 import "src/elf.gat";
 import "src/macho.gat";
+import "src/explain.gat";
 
 import "std/str.gat";
 import "std/fs.gat";
@@ -111,6 +112,7 @@ fn print_usage() {
     print("  check <file.gat>                 Fast typecheck and diagnostic check\n");
     print("  test                             Run all automated test suites\n");
     print("  fmt <file.gat>                   Format Gat source file\n");
+    print("  explain [code|list]              Explain diagnostic error codes and fixes\n");
     print("  version                          Show version information\n");
     print("  help                             Display this help message\n");
 }
@@ -354,6 +356,15 @@ fn main() -> i64 {
 
     if str_eq(cmd, "fmt") {
         return run_fmt();
+    }
+
+    if str_eq(cmd, "explain") || str_eq(cmd, "--explain") {
+        let code = get_cmd_arg(2);
+        if str_len(code) == 0 {
+            code = "list";
+        }
+        print_explain(code);
+        return 0;
     }
 
     print("[Error] Unknown command '", cmd, "'. Run 'gat help' for usage.\n");

@@ -36,6 +36,13 @@ fn main() -> i64 {
     http_router_get(router, "/ping", handle_ping);
 
     let port: i64 = 19890;
+    let arg_port = get_cmd_arg(1);
+    if str_len(arg_port) > 0 {
+        let p_res = str_parse_int(arg_port);
+        if result_is_ok(p_res) {
+            port = result_unwrap(p_res);
+        }
+    }
     let bind_res = http_server_bind("127.0.0.1", port, router);
     if result_is_err(bind_res) {
         print("fail: bind server\n");

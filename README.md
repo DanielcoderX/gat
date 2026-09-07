@@ -9,7 +9,7 @@
 
 `gat` is a compiled, low-level systems programming language featuring automatic reference counting (ARC), deterministic destructors, and direct machine code emission for Windows PE32+, Linux ELF64 (x86-64 & ARM64), and macOS Mach-O (Apple Silicon ARM64). The compiler is **100% self-hosted** with bitwise-reproducible multi-stage bootstrap.
 
-📖 **Read the official documentation**: [danielcoderx.github.io/gat](https://danielcoderx.github.io/gat/)
+📖 **Read the official documentation**: [danielcoderx.github.io/gat](https://danielcoderx.github.io/gat/) | [v1.0 Stability Promise](docs/STABILITY.md) | [Diagnostics Catalog](docs/DIAGNOSTICS.md)
 
 ---
 
@@ -17,7 +17,7 @@
 
 | Feature | Why It Matters |
 |---|---|
-| **Zero-Dependency Direct Syscalls** | On Linux, `gat` emits direct `syscall` (x86-64) or `svc #0` (ARM64) instructions (`sys_read`, `sys_write`, `sys_mmap`, `sys_clone`, `sys_nanosleep`). **Zero libc, musl, or dynamic linker dependencies.** On macOS, emits native Mach-O 64-bit ARM64 objects with direct Darwin syscalls (`svc #0x80`). On Windows, it links directly to `kernel32.dll` with no C runtime (`MSVCRT`) requirement. |
+| **Zero-Dependency Direct Syscalls** | On Linux, `gat` emits direct `syscall` (x86-64) or `svc #0` (ARM64) instructions (`sys_read`, `sys_write`, `sys_mmap`, `sys_clone` on x86-64, `sys_nanosleep`). **Zero libc, musl, or dynamic linker dependencies.** On macOS, emits native Mach-O 64-bit ARM64 objects with direct Darwin syscalls (`svc #0x80`). On Windows, it links directly to `kernel32.dll` with no C runtime (`MSVCRT`) requirement. |
 | **Dual Memory Model** | Choose between stack-allocated value types (`struct`, zero heap/refcount overhead) and heap-allocated reference types (`class`, managed via deterministic non-atomic ARC). |
 | **Deterministic RAII Destructors** | `deinit` blocks execute the exact instant an object's reference count hits zero. No stop-the-world garbage collection pauses. |
 | **Cycle Breaking via `weak T`** | Native non-owning `weak T` references prevent reference cycles from leaking memory. |
@@ -94,7 +94,7 @@ Explore our beginner-friendly tutorial gallery in [`examples/showcase/`](example
     - Heap: `sys_mmap` and `sys_munmap`
     - File & Console I/O: `sys_read`, `sys_write`, `sys_open`, `sys_close`, `sys_stat`
     - Sockets & Networking: `sys_socket`, `sys_connect`, `sys_bind`, `sys_listen`, `sys_accept`, `sys_sendto`, `sys_recvfrom`
-    - Concurrency: `sys_clone` with native atomic CAS mutexes
+    - Concurrency: `sys_clone` with native atomic CAS mutexes (Linux x86-64; ARM64 concurrency is experimental)
     - Lifecycle: `sys_exit_group`, `sys_getpid`, `sys_nanosleep`
   - Zero shared library dependencies (`ldd` reports "not a dynamic executable").
 

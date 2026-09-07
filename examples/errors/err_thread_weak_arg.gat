@@ -1,0 +1,16 @@
+import "std/thread.gat";
+import "std/weak.gat";
+
+class Task {
+    id: i64;
+}
+
+fn worker(w: weak Task) {
+}
+
+fn main() -> i64 {
+    let t = new Task { id: 1 };
+    let w = weak_from(t);
+    thread_spawn(worker, w);
+    return 0;
+}

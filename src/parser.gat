@@ -43,7 +43,7 @@ fn parser_report_error(p: Parser, line: i64, col: i64, expected: string, got: To
     if str_len(p.context) > 0 {
         print(" while parsing ", p.context);
     }
-    print("\n");
+    print(" [E0001]\n");
 }
 
 fn parser_expect_peek(p: Parser, kind: i64) -> bool {
@@ -441,6 +441,11 @@ fn parse_expression(p: Parser, prec: i64) -> ASTNode {
         };
     }
 
+    if left == nil {
+        parser_report_error(p, p.cur_tok.line, p.cur_tok.col, "expression", p.cur_tok);
+        return nil;
+    }
+
     // Infix rules
     while !parser_peek_is(p, TOK_SEMICOLON) && prec < get_precedence(p.peek_tok.kind) {
         let peek_kind = p.peek_tok.kind;
@@ -520,6 +525,22 @@ fn parse_expression(p: Parser, prec: i64) -> ASTNode {
     return left;
 }
 
+fn parser_synchronize_stmt(p: Parser) {
+    while !parser_cur_is(p, TOK_EOF) && !parser_cur_is(p, TOK_RBRACE) {
+        if parser_cur_is(p, TOK_SEMICOLON) {
+            return;
+        }
+        if parser_peek_is(p, TOK_LET) || parser_peek_is(p, TOK_RETURN) ||
+           parser_peek_is(p, TOK_IF) || parser_peek_is(p, TOK_WHILE) ||
+           parser_peek_is(p, TOK_FOR) || parser_peek_is(p, TOK_MATCH) ||
+           parser_peek_is(p, TOK_FN) || parser_peek_is(p, TOK_STRUCT) ||
+           parser_peek_is(p, TOK_CLASS) || parser_peek_is(p, TOK_ENUM) {
+            return;
+        }
+        parser_next_token(p);
+    }
+}
+
 fn parse_block(p: Parser) -> ASTNode {
     if !parser_cur_is(p, TOK_LBRACE) {
         return nil;
@@ -537,6 +558,8 @@ fn parse_block(p: Parser) -> ASTNode {
                 tail_stmt.next = stmt;
                 tail_stmt = stmt;
             }
+        } else {
+            parser_synchronize_stmt(p);
         }
         parser_next_token(p);
     }
@@ -1170,6 +1193,17 @@ fn parse_enum_decl(p: Parser) -> ASTNode {
     };
 }
 
+fn parser_synchronize_decl(p: Parser) {
+    while !parser_cur_is(p, TOK_EOF) {
+        if parser_peek_is(p, TOK_FN) || parser_peek_is(p, TOK_STRUCT) ||
+           parser_peek_is(p, TOK_CLASS) || parser_peek_is(p, TOK_ENUM) ||
+           parser_peek_is(p, TOK_IMPORT) {
+            return;
+        }
+        parser_next_token(p);
+    }
+}
+
 fn parse_program(p: Parser) -> ASTNode {
     let head_decl: ASTNode = nil;
     let tail_decl: ASTNode = nil;
@@ -1215,6 +1249,8 @@ fn parse_program(p: Parser) -> ASTNode {
                 tail_decl.next = decl;
                 tail_decl = decl;
             }
+        } else {
+            parser_synchronize_decl(p);
         }
         parser_next_token(p);
     }

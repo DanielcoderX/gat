@@ -36,6 +36,21 @@ fn main() -> i64 {
                 let t_name = str_sub(arg, 9, str_len(arg) - 9);
                 target_backend = target_from_name(t_name);
                 target_override = true;
+            } else if str_eq(arg, "--explain") {
+                arg_idx = arg_idx + 1;
+                let code_arg = get_cmd_arg(arg_idx);
+                if str_len(code_arg) == 0 {
+                    code_arg = "list";
+                }
+                print_explain(code_arg);
+                return 0;
+            } else if str_starts_with_prefix(arg, "--explain=") {
+                let code_arg = str_sub(arg, 10, str_len(arg) - 10);
+                if str_len(code_arg) == 0 {
+                    code_arg = "list";
+                }
+                print_explain(code_arg);
+                return 0;
             } else if str_len(src_path) == 0 && str_starts_with_prefix(arg, "-") == false {
                 src_path = arg;
             }
@@ -45,6 +60,7 @@ fn main() -> i64 {
 
     if str_len(src_path) == 0 {
         print("Usage: gatc <source.gat> -o <output.exe>\n");
+        print("       gatc --explain <E0001..E0010|list>\n");
         return 1;
     }
 

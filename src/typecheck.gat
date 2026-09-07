@@ -14,6 +14,7 @@ class TypeChecker {
     funcs_tail: Symbol;
     had_error: i64;
     fn_sigs_head: Symbol;
+    globals_head: Symbol;
 }
 
 fn tc_new() -> TypeChecker {
@@ -24,7 +25,8 @@ fn tc_new() -> TypeChecker {
         funcs_head: nil,
         funcs_tail: nil,
         had_error: 0,
-        fn_sigs_head: nil
+        fn_sigs_head: nil,
+        globals_head: nil
     };
 
     tc_add_primitive(tc, "void", TYPE_VOID, 0);
@@ -172,6 +174,17 @@ fn tc_find_func(tc: TypeChecker, name: string) -> Symbol {
     return nil;
 }
 
+fn tc_find_global(tc: TypeChecker, name: string) -> Symbol {
+    let cur = tc.globals_head;
+    while cur != nil {
+        if str_eq(cur.name, name) {
+            return cur;
+        }
+        cur = cur.next;
+    }
+    return nil;
+}
+
 fn tc_is_builtin(name: string) -> bool {
     if str_eq(name, "print") || str_eq(name, "alloc_mem") || str_eq(name, "free_mem") ||
        str_eq(name, "read_file") || str_eq(name, "write_file") || str_eq(name, "str_len") ||
@@ -212,7 +225,7 @@ fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
         let existing = tc_find_func(tc, decl.str_val);
         if existing != nil {
             let msg = str_concat("duplicate declaration of function '", decl.str_val);
-            msg = str_concat(msg, "' across flat imports");
+            msg = str_concat(msg, "' across flat imports [E0008]");
             tc_report_error(tc, msg);
             return;
         }
@@ -270,7 +283,7 @@ fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
         let existing_t = tc_find_type(tc, decl.str_val);
         if existing_t != nil {
             let msg = str_concat("duplicate declaration of type '", decl.str_val);
-            msg = str_concat(msg, "' across flat imports");
+            msg = str_concat(msg, "' across flat imports [E0008]");
             tc_report_error(tc, msg);
             return;
         }
@@ -381,6 +394,20 @@ fn tc_register_decl(tc: TypeChecker, decl: ASTNode) {
         }
         return;
     }
+
+    if decl.kind == AST_LET_STMT {
+        let sym = new Symbol {
+            name: decl.str_val,
+            type_kind: TYPE_INT,
+            type_name: decl.type_name,
+            is_ref: 0,
+            size: 8,
+            offset: 0,
+            next: tc.globals_head
+        };
+        tc.globals_head = sym;
+        return;
+    }
 }
 
 fn tc_get_field_offset(ti: TypeInfo, field_name: string) -> i64 {
@@ -441,6 +468,12 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
             }
             cur = cur.next;
         }
+        // Check globals
+        let g_sym = tc_find_global(tc, expr.str_val);
+        if g_sym != nil {
+            if str_len(g_sym.type_name) > 0 { return g_sym.type_name; }
+            return "i64";
+        }
         // Check global functions or types
         let fn_sym = tc_find_func(tc, expr.str_val);
         if fn_sym != nil {
@@ -448,6 +481,9 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
         }
         if tc_find_type(tc, expr.str_val) != nil { return expr.str_val; }
         if tc_is_builtin(expr.str_val) { return "fn"; }
+        let msg = str_concat("use of undeclared identifier '", expr.str_val);
+        msg = str_concat(msg, "' [E0002]");
+        tc_report_error(tc, msg);
         return "i64";
     }
 
@@ -475,7 +511,7 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
             // If not found in types/funcs/builtins, check if enum constructor or method (contains '.')
             if !tc_has_dot(fn_name) {
                 let msg = str_concat("call to undeclared function '", fn_name);
-                msg = str_concat(msg, "'");
+                msg = str_concat(msg, "' [E0003]");
                 tc_report_error(tc, msg);
             }
         } else if fn_sym != nil {
@@ -493,6 +529,7 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
                 msg = str_concat(msg, str_from_int(fn_sym.offset));
                 msg = str_concat(msg, " arguments, got ");
                 msg = str_concat(msg, str_from_int(arg_count));
+                msg = str_concat(msg, " [E0004]");
                 tc_report_error(tc, msg);
             }
 
@@ -502,7 +539,7 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
                     let arg_type = tc_check_expr(tc, arg_node, locals);
                     if !tc_is_thread_safe_arg_type(tc, arg_type) {
                         let msg = str_concat("cannot pass reference-counted type '", arg_type);
-                        msg = str_concat(msg, "' across thread boundary in thread_spawn");
+                        msg = str_concat(msg, "' across thread boundary in thread_spawn [E0006]");
                         tc_report_error(tc, msg);
                     }
                 }
@@ -517,7 +554,7 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
                 let arg_type = tc_check_expr(tc, arg_node, locals);
                 if !tc_is_thread_safe_arg_type(tc, arg_type) {
                     let msg = str_concat("cannot pass reference-counted type '", arg_type);
-                    msg = str_concat(msg, "' across thread boundary in thread_spawn");
+                    msg = str_concat(msg, "' across thread boundary in thread_spawn [E0006]");
                     tc_report_error(tc, msg);
                 }
             }
@@ -529,7 +566,7 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
         let ti = tc_find_type(tc, expr.type_name);
         if ti == nil {
             let msg = str_concat("unknown type in instantiation: '", expr.type_name);
-            msg = str_concat(msg, "'");
+            msg = str_concat(msg, "' [E0009]");
             tc_report_error(tc, msg);
         }
         return expr.type_name;
@@ -544,7 +581,7 @@ fn tc_check_expr(tc: TypeChecker, expr: ASTNode, locals: Symbol) -> string {
                 let msg = str_concat("type '", base_t);
                 msg = str_concat(msg, "' has no field named '");
                 msg = str_concat(msg, expr.str_val);
-                msg = str_concat(msg, "'");
+                msg = str_concat(msg, "' [E0005]");
                 tc_report_error(tc, msg);
             } else {
                 return ft;
@@ -604,6 +641,24 @@ fn tc_check_stmt(tc: TypeChecker, stmt: ASTNode, locals: Symbol, fn_name: string
     }
 
     if stmt.kind == AST_ASSIGN_STMT {
+        if stmt.left != nil && stmt.left.kind == AST_IDENT {
+            let found = false;
+            let cur = locals;
+            while cur != nil {
+                if str_eq(cur.name, stmt.left.str_val) { found = true; }
+                cur = cur.next;
+            }
+            if !found && tc_find_global(tc, stmt.left.str_val) != nil {
+                found = true;
+            }
+            if !found {
+                let msg = str_concat("assignment to undeclared identifier '", stmt.left.str_val);
+                msg = str_concat(msg, "' [E0010]");
+                tc_report_error(tc, msg);
+            }
+        } else if stmt.left != nil {
+            tc_check_expr(tc, stmt.left, locals);
+        }
         tc_check_expr(tc, stmt.right, locals);
         return locals;
     }
@@ -673,7 +728,7 @@ fn tc_check_stmt(tc: TypeChecker, stmt: ASTNode, locals: Symbol, fn_name: string
     if stmt.kind == AST_RETURN_STMT {
         if str_eq(ret_type, "void") && stmt.left != nil {
             let msg = str_concat("void function '", fn_name);
-            msg = str_concat(msg, "' cannot return a value");
+            msg = str_concat(msg, "' cannot return a value [E0007]");
             tc_report_error(tc, msg);
         } else if stmt.left != nil {
             tc_check_expr(tc, stmt.left, locals);

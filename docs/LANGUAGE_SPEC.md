@@ -8,9 +8,10 @@ permalink: /LANGUAGE_SPEC.html
 
 # Gat Language Specification
 
-**Version:** 0.4.0  
-**Target:** Native 64-bit (macOS Mach-O Apple Silicon ARM64, Linux ELF64 x86-64 & ARM64, Windows PE32+ x86-64)  
-**Memory Model:** Automatic Reference Counting (ARC)
+**Version:** 1.0.0  
+**Target:** Native 64-bit (Windows PE32+ x86-64, Linux ELF64 x86-64 & ARM64, macOS Mach-O Apple Silicon ARM64)  
+**Memory Model:** Automatic Reference Counting (ARC)  
+**Stability Promise:** See [STABILITY.md](STABILITY.html) | [DIAGNOSTICS.md](DIAGNOSTICS.html)  
 
 ---
 
@@ -149,11 +150,11 @@ class Node {
 ```
 
 ### 4.4 Concurrency & Thread-Boundary Isolation
-Gat provides native OS threading via `std/thread.gat` while preserving non-atomic ARC performance and memory soundness through compile-time thread-boundary isolation:
+Gat provides native OS threading via `std/thread.gat` (supported on Windows x86-64 and Linux x86-64; experimental on ARM64) while preserving non-atomic ARC performance and memory soundness through compile-time thread-boundary isolation:
 - **Thread-Local Heaps**: Each thread manages its own reference-counted heap. Reference counts (`strong_count`, `weak_count`) remain non-atomic and fast.
 - **Thread-Boundary Safety**: The compiler enforces at compile time that reference-counted types (`class`, `string`, `weak T`, or structs containing them) cannot be passed across thread boundaries in `thread_spawn`.
 - **Value & Raw Data Sharing**: Threads can receive primitive data (`i64`, `bool`), value `struct`s containing only plain data, and explicit `raw T` pointers.
-- **Synchronization (`Mutex`)**: `std/sync.gat` provides `Mutex` (wrapping Win32 Critical Sections) for safe, serialized mutation of shared `raw T` state across threads.
+- **Synchronization (`Mutex`)**: `std/sync.gat` provides `Mutex` (Win32 Critical Sections on Windows, futex CAS on Linux x86-64) for safe, serialized mutation of shared `raw T` state across threads.
 
 ```gat
 import "std/thread.gat";

@@ -98,7 +98,11 @@ $negativeTests = @(
     @{ Name = "Semantic Error (Invalid Struct Member)"; File = "examples/errors/err_type_field.gat"; ExpectErr = "[Type Error] type 'Point' has no field named 'z'" },
     @{ Name = "Semantic Error (Void Function Returning Value)"; File = "examples/errors/err_type_void_return.gat"; ExpectErr = "[Type Error] void function 'do_work' cannot return a value" },
     @{ Name = "Safety Error (Passing Class Across Thread Boundary)"; File = "examples/errors/err_thread_class_arg.gat"; ExpectErr = "[Type Error] cannot pass reference-counted type 'Person' across thread boundary in thread_spawn" },
-    @{ Name = "Semantic Error (Duplicate Declaration Across Flat Imports)"; File = "examples/errors/err_flat_import_collision.gat"; ExpectErr = "[Type Error] duplicate declaration of function 'helper' across flat imports" }
+    @{ Name = "Semantic Error (Duplicate Declaration Across Flat Imports)"; File = "examples/errors/err_flat_import_collision.gat"; ExpectErr = "[Type Error] duplicate declaration of function 'helper' across flat imports" },
+    @{ Name = "Syntax Error (Multi-Error Panic Recovery)"; File = "examples/errors/err_syntax_multi_recovery.gat"; ExpectErr = "[Parser Error] line 1:15: expected ':', got 'i64' (identifier)" },
+    @{ Name = "Syntax Error (Empty Expression in Assignment)"; File = "examples/errors/err_syntax_empty_expr.gat"; ExpectErr = "[Parser Error] line 2:13: expected 'expression', got ';' (;)" },
+    @{ Name = "Semantic Error (Undeclared Variable in Expression)"; File = "examples/errors/err_type_undeclared_var.gat"; ExpectErr = "[Type Error] use of undeclared identifier 'non_existent_variable_xyz'" },
+    @{ Name = "Safety Error (Passing Weak Ref Across Thread Boundary)"; File = "examples/errors/err_thread_weak_arg.gat"; ExpectErr = "[Type Error] cannot pass reference-counted type 'weak T' across thread boundary in thread_spawn" }
 )
 
 $negPassed = 0
@@ -133,16 +137,40 @@ foreach ($nt in $negativeTests) {
     $negPassed++
 }
 
-# 5. Language Server (LSP) Verification
-Write-Host "`n[5/6] Running Language Server (LSP) Tests..." -ForegroundColor Cyan
+# 5. Diagnostic Explanation CLI Verification
+Write-Host "`n[5/7] Running Diagnostic --explain CLI Verification..." -ForegroundColor Cyan
+
+$explainGatcOut = (& .\bin\gatc.exe --explain E0001 | Out-String)
+if (-not $explainGatcOut.Contains("Error [E0001]: Syntax Error")) {
+    Write-Host "  [FAIL] gatc --explain E0001 failed" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [PASS] gatc --explain E0001 verified" -ForegroundColor Green
+
+$explainGatcThreadOut = (& .\bin\gatc.exe --explain E0006 | Out-String)
+if (-not $explainGatcThreadOut.Contains("Error [E0006]: Thread Boundary Safety Violation")) {
+    Write-Host "  [FAIL] gatc --explain E0006 failed" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [PASS] gatc --explain E0006 verified" -ForegroundColor Green
+
+$explainGatOut = (& .\bin\gat.exe explain E0002 | Out-String)
+if (-not $explainGatOut.Contains("Error [E0002]: Undeclared Identifier")) {
+    Write-Host "  [FAIL] gat explain E0002 failed" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [PASS] gat explain E0002 verified" -ForegroundColor Green
+
+# 6. Language Server (LSP) Verification
+Write-Host "`n[6/7] Running Language Server (LSP) Tests..." -ForegroundColor Cyan
 & node editors\vscode\test_lsp.js
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  [FAIL] Language Server tests failed!" -ForegroundColor Red
     exit 1
 }
 
-# 6. Linux/ELF64 Target Verification (WSL)
-Write-Host "`n[6/6] Running Linux/ELF64 Native Direct Syscall Suite..." -ForegroundColor Cyan
+# 7. Linux/ELF64 Target Verification (WSL)
+Write-Host "`n[7/7] Running Linux/ELF64 Native Direct Syscall Suite..." -ForegroundColor Cyan
 
 $linuxTests = @(
     @{ Name = "Linux Direct Syscall Suite"; File = "examples/test_linux_suite.gat"; Bin = "bin/test_linux_suite"; Expect = "ALL LINUX ELF64 TESTS PASSED SUCCESSFULLY" },
@@ -150,7 +178,7 @@ $linuxTests = @(
     @{ Name = "Linux TCP Sockets & Networking"; File = "examples/test_net.gat"; Bin = "bin/test_net_linux"; Expect = "All Socket & Networking tests completed successfully!" },
     @{ Name = "Linux JSON Parser & Serializer"; File = "examples/test_json.gat"; Bin = "bin/test_json_linux"; Expect = "All JSON parser & serializer tests completed successfully!" },
     @{ Name = "Linux HTTP 1.1 Client & Server"; File = "examples/test_http.gat"; Bin = "bin/test_http_linux"; Expect = "All HTTP 1.1 tests completed successfully!" },
-    @{ Name = "Linux HTTP Concurrent Server"; File = "examples/test_http_concurrent.gat"; Bin = "bin/test_http_concurrent_linux"; Expect = "test_http_concurrent: PASS" }
+    @{ Name = "Linux HTTP Concurrent Server"; File = "examples/test_http_concurrent.gat"; Bin = "bin/test_http_concurrent_linux"; Expect = "test_http_concurrent: PASS"; Args = @("19895") }
 )
 
 $wslAvailable = $false
@@ -172,7 +200,12 @@ foreach ($lt in $linuxTests) {
 
     if ($wslAvailable) {
         wsl chmod +x "./$($lt.Bin)"
-        $linuxOut = (wsl "./$($lt.Bin)" | Out-String)
+        if ($lt.Args) {
+            $argStr = ($lt.Args -join " ")
+            $linuxOut = (wsl "./$($lt.Bin)" $argStr | Out-String)
+        } else {
+            $linuxOut = (wsl "./$($lt.Bin)" | Out-String)
+        }
         if ($LASTEXITCODE -ne 0 -or -not $linuxOut.Contains($lt.Expect)) {
             Write-Host "  [FAIL] $($lt.Name) failed under WSL:`n$linuxOut" -ForegroundColor Red
             exit 1

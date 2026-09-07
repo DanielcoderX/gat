@@ -37,7 +37,7 @@ Gat provides precise control over data placement:
 Unlike languages that require `glibc`, `musl`, or dynamic linkers, Gat's Linux backend emits raw `syscall` instructions directly for:
 - Memory allocation (`sys_mmap` / `sys_munmap`)
 - File and console I/O (`sys_read`, `sys_write`, `sys_open`, `sys_close`, `sys_stat`)
-- Multithreading (`sys_clone`) and process lifecycle (`sys_exit_group`, `sys_getpid`, `sys_nanosleep`)
+- Multithreading (`sys_clone` on x86-64; ARM64 concurrency is experimental) and process lifecycle (`sys_exit_group`, `sys_getpid`, `sys_nanosleep`)
 - Futex-backed or atomic CAS synchronization primitives
 - Sockets & TCP Networking (`sys_socket`, `sys_connect`, `sys_bind`, `sys_listen`, `sys_accept`, `sys_sendto`, `sys_recvfrom`)
 
@@ -53,7 +53,7 @@ Gat is 100% written in Gat (`src/compiler.gat`). Every build is validated via a 
 - **Built-in Package Manager**: `gat init`, `gat add`, `gat install` with lockfile verification (`gat.mod` & `gat.lock`).
 - **Language Server Protocol (LSP)**: Complete editor support with diagnostics, hover inspection, go-to-definition, and autocomplete.
 - **Cross-Platform Networking**: `std/net.gat` for TCP client/server streaming, high-level listeners, and automatic RAII socket lifecycles.
-- **Modern Optimizing Pipeline**: AST type inference, generic monomorphization, dead-code elimination (DCE), SSA-inspired IR, constant folding, and linear-scan register allocation.
+- **Modern Optimizing Pipeline**: AST type inference, uniform word-sized generics erasure, dead-code elimination (DCE), SSA-inspired IR, constant folding, and linear-scan register allocation.
 
 ---
 
@@ -91,6 +91,8 @@ Grab the latest release archive from [GitHub Releases](https://github.com/Daniel
 
 ## Documentation Roadmap
 
+- [**Stability Promise**](STABILITY.html): Formal v1.0 stability guarantee, platform support matrix, and versioning policy.
+- [**Diagnostics Catalog**](DIAGNOSTICS.html): Error codes (`E0001`–`E0010`), explanation engine, and code fix examples.
 - [**Getting Started**](getting-started.html): Installation, compiler usage, project setup.
 - [**Curated Example Gallery**](examples.html): Step-by-step tutorial programs from Hello World to mini CLI tools.
 - [**Language Specification**](LANGUAGE_SPEC.html): Syntax, keywords, types, control flow, memory model, and EBNF grammar.

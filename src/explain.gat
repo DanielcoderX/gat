@@ -1,0 +1,230 @@
+// ============================================================================
+// src/explain.gat - Error Code Explanations Catalog for Gat Compiler
+// ============================================================================
+
+fn print_explain_e0001() {
+    print("====================================================================\n");
+    print("Error [E0001]: Syntax Error\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  The parser encountered an unexpected token that violates Gat grammar.\n");
+    print("  This commonly occurs when a token (such as a colon, semicolon, parenthesis,\n");
+    print("  or brace) is missing, placed incorrectly, or when an expression is expected.\n\n");
+    print("Common Causes:\n");
+    print("  1. Missing colon in parameter list:  fn f(x i64)       -> fn f(x: i64)\n");
+    print("  2. Empty expression in assignment:   let x = ;         -> let x = 0;\n");
+    print("  3. Unclosed parenthesis or brace:    if (x > 0         -> if x > 0\n\n");
+    print("Recovery:\n");
+    print("  Gat panic-mode synchronization skips tokens to the next statement or\n");
+    print("  declaration boundary to report any further independent errors.\n");
+}
+
+fn print_explain_e0002() {
+    print("====================================================================\n");
+    print("Error [E0002]: Undeclared Identifier\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  An identifier was referenced in an expression, but no local variable,\n");
+    print("  global constant, or type with that name has been declared in scope.\n\n");
+    print("Common Causes:\n");
+    print("  1. Typo in variable name.\n");
+    print("  2. Variable used before its declaration.\n");
+    print("  3. Variable declared inside a different block scope.\n\n");
+    print("Example Bad Code:\n");
+    print("  let y = count + 1; // 'count' was never declared\n\n");
+    print("Corrected Code:\n");
+    print("  let count = 10;\n");
+    print("  let y = count + 1;\n");
+}
+
+fn print_explain_e0003() {
+    print("====================================================================\n");
+    print("Error [E0003]: Undeclared Function\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  A function call referenced a name that is not declared in the program,\n");
+    print("  standard library, imported modules, or local function pointers.\n\n");
+    print("Common Causes:\n");
+    print("  1. Missing import statement for the module containing the function.\n");
+    print("  2. Typo in function name.\n");
+    print("  3. Function defined in a module with an alias but called without prefix.\n\n");
+    print("Example Bad Code:\n");
+    print("  import \"std/str.gat\" as str;\n");
+    print("  let len = str_len(\"hello\"); // Should be str.str_len\n\n");
+    print("Corrected Code:\n");
+    print("  let len = str.str_len(\"hello\");\n");
+}
+
+fn print_explain_e0004() {
+    print("====================================================================\n");
+    print("Error [E0004]: Function Arity Mismatch\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  A function was invoked with a different number of arguments than its\n");
+    print("  declaration specifies.\n\n");
+    print("Common Causes:\n");
+    print("  1. Extra or missing argument passed to function call.\n");
+    print("  2. Changed function definition without updating all caller call sites.\n\n");
+    print("Example Bad Code:\n");
+    print("  fn add(a: i64, b: i64) -> i64\n");
+    print("  let res = add(1, 2, 3); // Expected 2 arguments, got 3\n\n");
+    print("Corrected Code:\n");
+    print("  let res = add(1, 2);\n");
+}
+
+fn print_explain_e0005() {
+    print("====================================================================\n");
+    print("Error [E0005]: Invalid Member Access\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  Attempted to access a field name on a struct or class type that does\n");
+    print("  not exist on that type definition.\n\n");
+    print("Common Causes:\n");
+    print("  1. Typo in field name.\n");
+    print("  2. Accessing a field of an inner struct without dereferencing inner object.\n\n");
+    print("Example Bad Code:\n");
+    print("  struct Point [ x: i64; y: i64; ]\n");
+    print("  let z = p.z; // Point has no field 'z'\n\n");
+    print("Corrected Code:\n");
+    print("  let x = p.x;\n");
+}
+
+fn print_explain_e0006() {
+    print("====================================================================\n");
+    print("Error [E0006]: Thread Boundary Safety Violation\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  Reference-counted types ('class', 'string', 'weak T', or structs containing\n");
+    print("  them) cannot be passed across thread boundaries in 'thread_spawn'.\n\n");
+    print("Why This Is Enforced:\n");
+    print("  Gat's ARC reference counts (strong_count and weak_count) are non-atomic\n");
+    print("  for maximum single-threaded performance. Sharing ARC objects across\n");
+    print("  threads causes data races and memory corruption.\n\n");
+    print("Permitted Thread Arguments:\n");
+    print("  - Primitive types: 'i64', 'bool'\n");
+    print("  - Plain structs containing only primitives or raw pointers\n");
+    print("  - Explicit 'raw T' pointers with synchronization ('std/sync.gat' Mutex)\n\n");
+    print("Example Bad Code:\n");
+    print("  class Data [ val: i64; ]\n");
+    print("  fn worker(d: Data)\n");
+    print("  thread_spawn(worker, d); // REJECTED: cannot pass class across threads\n\n");
+    print("Corrected Code:\n");
+    print("  struct ThreadData [ val: i64; ]\n");
+    print("  fn worker(d: raw ThreadData)\n");
+    print("  thread_spawn(worker, d);\n");
+}
+
+fn print_explain_e0007() {
+    print("====================================================================\n");
+    print("Error [E0007]: Void Return Value Mismatch\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  A function declared with return type 'void' attempted to return a value.\n\n");
+    print("Common Causes:\n");
+    print("  1. Function intended to return a value but missing return type annotation.\n");
+    print("  2. 'return <expr>;' accidentally used instead of 'return;'.\n\n");
+    print("Example Bad Code:\n");
+    print("  fn do_work() -> void ( return 42; )\n\n");
+    print("Corrected Code:\n");
+    print("  fn do_work() -> i64 ( return 42; )\n");
+}
+
+fn print_explain_e0008() {
+    print("====================================================================\n");
+    print("Error [E0008]: Duplicate Symbol Across Imports\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  Two imported modules define top-level functions or types with the same\n");
+    print("  name when imported into the flat root namespace.\n\n");
+    print("Resolution:\n");
+    print("  Use namespaced module imports ('import ... as alias;') to isolate\n");
+    print("  symbol definitions and prevent namespace collisions.\n\n");
+    print("Example Fix:\n");
+    print("  import \"mod_a.gat\" as a;\n");
+    print("  import \"mod_b.gat\" as b;\n");
+}
+
+fn print_explain_e0009() {
+    print("====================================================================\n");
+    print("Error [E0009]: Unknown Type in Instantiation\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  An instantiation expression 'new TypeName' refers to a type name\n");
+    print("  that has not been declared as a struct, class, or enum.\n");
+}
+
+fn print_explain_e0010() {
+    print("====================================================================\n");
+    print("Error [E0010]: Assignment to Undeclared Identifier\n");
+    print("====================================================================\n");
+    print("Description:\n");
+    print("  An assignment statement 'target = value;' references an identifier that\n");
+    print("  was never bound with 'let'. Variables must be declared before assignment.\n\n");
+    print("Example Fix:\n");
+    print("  let x = 0;\n");
+    print("  x = 10;\n");
+}
+
+fn print_explain_list() {
+    print("Gat Compiler Diagnostic Error Codes:\n");
+    print("  E0001: Syntax Error (parser error / unexpected token)\n");
+    print("  E0002: Undeclared Identifier (variable referenced before declaration)\n");
+    print("  E0003: Undeclared Function (function call to unknown symbol)\n");
+    print("  E0004: Function Arity Mismatch (wrong argument count)\n");
+    print("  E0005: Invalid Member Access (field not found on struct/class)\n");
+    print("  E0006: Thread Boundary Safety Violation (passing ARC class across thread_spawn)\n");
+    print("  E0007: Void Return Value Mismatch (void function returning value)\n");
+    print("  E0008: Duplicate Symbol Across Imports (import namespace collision)\n");
+    print("  E0009: Unknown Type in Instantiation (new UnknownType)\n");
+    print("  E0010: Assignment to Undeclared Identifier (assignment before 'let')\n\n");
+    print("Usage: gatc --explain <code-or-all>\n");
+}
+
+fn print_explain(code: string) -> bool {
+    if str_eq(code, "E0001") || str_eq(code, "E1") || str_eq(code, "syntax") {
+        print_explain_e0001();
+        return true;
+    }
+    if str_eq(code, "E0002") || str_eq(code, "E2") || str_eq(code, "ident") {
+        print_explain_e0002();
+        return true;
+    }
+    if str_eq(code, "E0003") || str_eq(code, "E3") || str_eq(code, "func") {
+        print_explain_e0003();
+        return true;
+    }
+    if str_eq(code, "E0004") || str_eq(code, "E4") || str_eq(code, "arity") {
+        print_explain_e0004();
+        return true;
+    }
+    if str_eq(code, "E0005") || str_eq(code, "E5") || str_eq(code, "field") {
+        print_explain_e0005();
+        return true;
+    }
+    if str_eq(code, "E0006") || str_eq(code, "E6") || str_eq(code, "thread") {
+        print_explain_e0006();
+        return true;
+    }
+    if str_eq(code, "E0007") || str_eq(code, "E7") || str_eq(code, "void") {
+        print_explain_e0007();
+        return true;
+    }
+    if str_eq(code, "E0008") || str_eq(code, "E8") || str_eq(code, "import") {
+        print_explain_e0008();
+        return true;
+    }
+    if str_eq(code, "E0009") || str_eq(code, "E9") || str_eq(code, "type") {
+        print_explain_e0009();
+        return true;
+    }
+    if str_eq(code, "E0010") || str_eq(code, "E10") || str_eq(code, "assign") {
+        print_explain_e0010();
+        return true;
+    }
+    if str_eq(code, "list") || str_eq(code, "--list") || str_eq(code, "all") {
+        print_explain_list();
+        return true;
+    }
+    print("Unknown error code '", code, "'. Run 'gatc --explain list' for a full catalog.\n");
+    return false;
+}
