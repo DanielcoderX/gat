@@ -156,6 +156,25 @@ fn elf_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> boo
                 p_code[rel.offset + 9] = (i2 / 256) % 256;
                 p_code[rel.offset + 10] = (i2 / 65536) % 256;
                 p_code[rel.offset + 11] = (i2 / 16777216) % 256;
+            } else if rel.kind == 4 {
+                // ADR instruction for function address in text section
+                let from_vaddr = code_vaddr + rel.offset;
+                let diff = target_vaddr - from_vaddr;
+                let b0 = p_code[rel.offset + 0];
+                if b0 < 0 { b0 = b0 + 256; }
+                let rd = b0 % 32;
+
+                let off = diff;
+                if off < 0 { off = off + 2097152; }
+                off = off % 2097152;
+                let immlo = off % 4;
+                let immhi = (off / 4) % 524288;
+                let inst: i64 = 268435456 + (immlo * 536870912) + (immhi * 32) + rd;
+                let u = inst;
+                p_code[rel.offset + 0] = u % 256;
+                p_code[rel.offset + 1] = (u / 256) % 256;
+                p_code[rel.offset + 2] = (u / 65536) % 256;
+                p_code[rel.offset + 3] = (u / 16777216) % 256;
             }
         } else {
             let from_vaddr = code_vaddr + rel.offset + 4;

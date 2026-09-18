@@ -1,4 +1,6 @@
 # Ignore intermediate test binaries, keep seed compiler
+bin/gat
+bin/gatc
 bin/gatc-*
 bin/gat-*
 bin/test_*

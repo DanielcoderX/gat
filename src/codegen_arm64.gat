@@ -47,6 +47,24 @@ fn cg_arm64_load_data_addr(cg: CodeGen, rd: i64, sym: string) {
     }
 }
 
+fn cg_arm64_load_fn_addr(cg: CodeGen, rd: i64, sym: string) {
+    let r = new Reloc {
+        offset: cg.code.size,
+        sym: sym,
+        kind: 4,
+        next: nil
+    };
+    if cg.relocs_head == nil {
+        cg.relocs_head = r;
+        cg.relocs_tail = r;
+    } else {
+        cg.relocs_tail.next = r;
+        cg.relocs_tail = r;
+    }
+    a64_adr(cg.code, rd, 0);
+}
+
+
 fn cg_a64_local_offset(val_id: i64) -> i64 {
     return val_id * 8 + 16;
 }
@@ -239,13 +257,13 @@ fn cg_arm64_emit_runtime(cg: CodeGen) {
     a64_mov_imm(cg.code, A64_X0, 0);                // addr = 0
     a64_mov_imm(cg.code, A64_X2, 3);                // PROT_READ | PROT_WRITE
     if target_is_macos(cg.target) {
-        a64_mov_imm(cg.code, A64_X3, 4098);          // MAP_PRIVATE (0x2) | MAP_ANON (0x1000) = 4098
+        a64_mov_imm(cg.code, A64_X3, 4097);          // MAP_SHARED (0x1) | MAP_ANON (0x1000) = 4097
         a64_mov_imm(cg.code, A64_X4, 0 - 1);        // fd = -1
         a64_mov_imm(cg.code, A64_X5, 0);            // offset = 0
         a64_mov_imm(cg.code, A64_X16, 197);         // sys_mmap = 197 (Darwin)
         a64_svc_darwin(cg.code);
     } else {
-        a64_mov_imm(cg.code, A64_X3, 34);           // MAP_PRIVATE | MAP_ANONYMOUS
+        a64_mov_imm(cg.code, A64_X3, 33);            // MAP_SHARED (0x1) | MAP_ANONYMOUS (0x20) = 33
         a64_mov_imm(cg.code, A64_X4, 0 - 1);        // fd = -1
         a64_mov_imm(cg.code, A64_X5, 0);            // offset = 0
         a64_mov_imm(cg.code, A64_X8, 222);          // sys_mmap = 222 (Linux AArch64)
@@ -971,6 +989,7 @@ fn cg_arm64_emit_runtime(cg: CodeGen) {
 
     // Networking Runtime (Linux ARM64 raw syscalls & macOS Apple Silicon Darwin syscalls)
     cg_arm64_emit_net_runtime(cg);
+    cg_arm64_emit_thread_runtime(cg);
 }
 
 // ----------------------------------------------------------------------------
@@ -983,6 +1002,8 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     if target_is_macos(cg.target) {
         a64_mov_imm(cg.code, A64_X16, 97); // sys_socket = 97 (Darwin)
         a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, A64_COND_CC, 2);
+        a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0);
     } else {
         a64_mov_imm(cg.code, A64_X8, 198); // sys_socket = 198 (Linux AArch64)
         a64_svc(cg.code);
@@ -994,6 +1015,8 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     if target_is_macos(cg.target) {
         a64_mov_imm(cg.code, A64_X16, 6);  // sys_close = 6 (Darwin)
         a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, A64_COND_CC, 2);
+        a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0);
     } else {
         a64_mov_imm(cg.code, A64_X8, 57); // sys_close = 57 (Linux AArch64)
         a64_svc(cg.code);
@@ -1005,6 +1028,8 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     if target_is_macos(cg.target) {
         a64_mov_imm(cg.code, A64_X16, 106); // sys_listen = 106 (Darwin)
         a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, A64_COND_CC, 2);
+        a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0);
     } else {
         a64_mov_imm(cg.code, A64_X8, 201); // sys_listen = 201 (Linux AArch64)
         a64_svc(cg.code);
@@ -1018,6 +1043,8 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     if target_is_macos(cg.target) {
         a64_mov_imm(cg.code, A64_X16, 30); // sys_accept = 30 (Darwin)
         a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, A64_COND_CC, 2);
+        a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0);
     } else {
         a64_mov_imm(cg.code, A64_X8, 202); // sys_accept = 202 (Linux AArch64)
         a64_svc(cg.code);
@@ -1032,6 +1059,8 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     if target_is_macos(cg.target) {
         a64_mov_imm(cg.code, A64_X16, 133); // sys_sendto = 133 (Darwin)
         a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, A64_COND_CC, 2);
+        a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0);
     } else {
         a64_mov_imm(cg.code, A64_X8, 206); // sys_sendto = 206 (Linux AArch64)
         a64_svc(cg.code);
@@ -1046,6 +1075,8 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     if target_is_macos(cg.target) {
         a64_mov_imm(cg.code, A64_X16, 29); // sys_recvfrom = 29 (Darwin)
         a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, A64_COND_CC, 2);
+        a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0);
     } else {
         a64_mov_imm(cg.code, A64_X8, 207); // sys_recvfrom = 207 (Linux AArch64)
         a64_svc(cg.code);
@@ -1060,14 +1091,13 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     a64_add_imm(cg.code, A64_FP, A64_SP, 0);
 
     // Build sockaddr_in (16 bytes) at [FP+16]:
-    // zero 16 bytes:
     a64_str_imm(cg.code, A64_XZR, A64_FP, 16);
     a64_str_imm(cg.code, A64_XZR, A64_FP, 24);
 
     if target_is_macos(cg.target) {
         // macOS Darwin: sin_len (1 byte) = 16, sin_family (1 byte) = 2
-        // halfword = 2 | (16 << 8) = 2 | 4096 = 4098
-        a64_mov_imm(cg.code, A64_X9, 4098);
+        // halfword = 16 | (2 << 8) = 16 | 512 = 528
+        a64_mov_imm(cg.code, A64_X9, 528);
         a64_strh_imm(cg.code, A64_X9, A64_FP, 16);
     } else {
         // Linux: sin_family (2 bytes) = 2
@@ -1094,6 +1124,8 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     if target_is_macos(cg.target) {
         a64_mov_imm(cg.code, A64_X16, 98); // sys_connect = 98 (Darwin)
         a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, A64_COND_CC, 2);
+        a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0);
     } else {
         a64_mov_imm(cg.code, A64_X8, 203); // sys_connect = 203 (Linux AArch64)
         a64_svc(cg.code);
@@ -1116,7 +1148,8 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     a64_str_imm(cg.code, A64_XZR, A64_FP, 24);
 
     if target_is_macos(cg.target) {
-        a64_mov_imm(cg.code, A64_X9, 4098); // sin_len=16, sin_family=2
+        // macOS Darwin: sin_len=16, sin_family=2 -> 16 | (2 << 8) = 528
+        a64_mov_imm(cg.code, A64_X9, 528);
         a64_strh_imm(cg.code, A64_X9, A64_FP, 16);
     } else {
         a64_mov_imm(cg.code, A64_X9, 2);    // sin_family=2
@@ -1142,6 +1175,8 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     if target_is_macos(cg.target) {
         a64_mov_imm(cg.code, A64_X16, 104); // sys_bind = 104 (Darwin)
         a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, A64_COND_CC, 2);
+        a64_sub_reg(cg.code, A64_X0, A64_XZR, A64_X0);
     } else {
         a64_mov_imm(cg.code, A64_X8, 200); // sys_bind = 200 (Linux AArch64)
         a64_svc(cg.code);
@@ -1150,6 +1185,125 @@ fn cg_arm64_emit_net_runtime(cg: CodeGen) {
     a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
     a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
     a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+}
+
+// ----------------------------------------------------------------------------
+// AArch64 Thread & Mutex Runtime Helpers
+// ----------------------------------------------------------------------------
+
+fn cg_arm64_emit_thread_runtime(cg: CodeGen) {
+    // 1. __gat_thread_spawn(x0: fn_ptr, x1: arg) -> x0 (handle/pid)
+    cg_define_sym(cg, "__gat_thread_spawn");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_str_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_str_imm(cg.code, A64_X20, A64_SP, 24);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_mov_reg(cg.code, A64_X19, A64_X0); // x19 = fn_ptr
+    a64_mov_reg(cg.code, A64_X20, A64_X1); // x20 = arg
+
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 2); // sys_fork = 2 (Darwin)
+        a64_svc_darwin(cg.code);
+        a64_b_cond(cg.code, A64_COND_CS, 14); // if error (Carry Set), jump to fail (+14 instructions)
+        a64_cmp_imm(cg.code, A64_X1, 1);
+        a64_b_cond(cg.code, A64_COND_EQ, 7);  // if child (x1 == 1), jump to child (+7 instructions)
+    } else {
+        a64_mov_imm(cg.code, A64_X0, 17); // SIGCHLD = 17
+        a64_mov_imm(cg.code, A64_X1, 0);
+        a64_mov_imm(cg.code, A64_X2, 0);
+        a64_mov_imm(cg.code, A64_X3, 0);
+        a64_mov_imm(cg.code, A64_X4, 0);
+        a64_mov_imm(cg.code, A64_X8, 220); // sys_clone = 220 (Linux AArch64)
+        a64_svc(cg.code);
+        a64_cmp_imm(cg.code, A64_X0, 0);
+        a64_b_cond(cg.code, A64_COND_LT, 13); // if error (x0 < 0), jump to fail (+13 instructions)
+        a64_b_cond(cg.code, A64_COND_EQ, 7);  // if child (x0 == 0), jump to child (+7 instructions)
+    }
+
+    // Parent path: x0 holds child pid (6 instructions)
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_ldr_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_ldr_imm(cg.code, A64_X20, A64_SP, 24);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+
+    // Child path: (.Lchild) (5 instructions)
+    a64_mov_reg(cg.code, A64_X0, A64_X20); // x0 = arg
+    a64_blr(cg.code, A64_X19);             // call fn_ptr(arg)
+    a64_mov_imm(cg.code, A64_X0, 0);       // exit status 0
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 1);  // sys_exit = 1 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 94);  // sys_exit_group = 94 (Linux)
+        a64_svc(cg.code);
+    }
+
+    // Fail path: return -1 (7 instructions)
+    a64_mov_imm(cg.code, A64_X0, 0 - 1);
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_ldr_imm(cg.code, A64_X19, A64_SP, 16);
+    a64_ldr_imm(cg.code, A64_X20, A64_SP, 24);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+
+
+    // 2. __gat_thread_join(x0: handle)
+    cg_define_sym(cg, "__gat_thread_join");
+    a64_sub_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_str_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_str_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_FP, A64_SP, 0);
+
+    // wait4(child_pid, &status, 0, NULL)
+    a64_add_imm(cg.code, A64_X1, A64_SP, 16); // &status
+    a64_mov_imm(cg.code, A64_X2, 0);          // options = 0
+    a64_mov_imm(cg.code, A64_X3, 0);          // rusage = NULL
+    if target_is_macos(cg.target) {
+        a64_mov_imm(cg.code, A64_X16, 7);     // sys_wait4 = 7 (Darwin)
+        a64_svc_darwin(cg.code);
+    } else {
+        a64_mov_imm(cg.code, A64_X8, 61);     // sys_wait4 = 61 (Linux)
+        a64_svc(cg.code);
+    }
+    a64_ldr_imm(cg.code, A64_FP, A64_SP, 0);
+    a64_ldr_imm(cg.code, A64_LR, A64_SP, 8);
+    a64_add_imm(cg.code, A64_SP, A64_SP, 32);
+    a64_ret(cg.code, A64_LR);
+
+    // 3. __gat_mutex_init(x0: ptr)
+    cg_define_sym(cg, "__gat_mutex_init");
+    a64_str_w_imm(cg.code, A64_XZR, A64_X0, 0); // [x0] = 0
+    a64_ret(cg.code, A64_LR);
+
+    // 4. __gat_mutex_lock(x0: ptr)
+    cg_define_sym(cg, "__gat_mutex_lock");
+    // .Lspin:
+    a64_emit(cg.code, 2287959041); // 0x885f7c01 (ldxr w1, [x0])
+    a64_emit(cg.code, 1895825471); // 0x7100003f (cmp w1, #0)
+    a64_emit(cg.code, 1409286305); // 0x540000a1 (b.ne +5 to yield)
+    a64_emit(cg.code, 1384120354); // 0x52800022 (mov w2, #1)
+    a64_emit(cg.code, 2281929730); // 0x88037c02 (stxr w3, w2, [x0])
+    a64_emit(cg.code, 1895825535); // 0x7100007f (cmp w3, #0)
+    a64_emit(cg.code, 1409286240); // 0x54000060 (b.eq +3 to ret)
+    // .Lwait:
+    a64_emit(cg.code, 3573751871); // 0xd503203f (yield)
+    a64_emit(cg.code, 402653176);  // 0x17fffff8 (b -8 to .Lspin)
+    // .Ldone:
+    a64_ret(cg.code, A64_LR);
+
+    // 5. __gat_mutex_unlock(x0: ptr)
+    cg_define_sym(cg, "__gat_mutex_unlock");
+    a64_str_w_imm(cg.code, A64_XZR, A64_X0, 0); // [x0] = 0
+    a64_ret(cg.code, A64_LR);
+
+    // 6. __gat_mutex_destroy(x0: ptr)
+    cg_define_sym(cg, "__gat_mutex_destroy");
     a64_ret(cg.code, A64_LR);
 }
 
@@ -1355,13 +1509,19 @@ fn cg_arm64_emit_function(cg: CodeGen, fn_obj: IRFunc) {
             else if str_eq(callee, "net_send") { callee = "__gat_net_send"; }
             else if str_eq(callee, "net_recv") { callee = "__gat_net_recv"; }
             else if str_eq(callee, "net_close") { callee = "__gat_net_close"; }
+            else if str_eq(callee, "thread_spawn") { callee = "__gat_thread_spawn"; }
+            else if str_eq(callee, "thread_join") { callee = "__gat_thread_join"; }
+            else if str_eq(callee, "mutex_init") { callee = "__gat_mutex_init"; }
+            else if str_eq(callee, "mutex_lock_raw") { callee = "__gat_mutex_lock"; }
+            else if str_eq(callee, "mutex_unlock_raw") { callee = "__gat_mutex_unlock"; }
+            else if str_eq(callee, "mutex_destroy_raw") { callee = "__gat_mutex_destroy"; }
 
             cg_arm64_call_sym(cg, callee);
             if inst.dest != 0 {
                 cg_a64_store_local(cg, A64_X0, inst.dest);
             }
         } else if inst.op == IR_OP_CONST_FN {
-            cg_arm64_load_data_addr(cg, A64_X9, inst.str_val);
+            cg_arm64_load_fn_addr(cg, A64_X9, inst.str_val);
             if inst.dest != 0 {
                 cg_a64_store_local(cg, A64_X9, inst.dest);
             }

@@ -103,6 +103,35 @@ fn macho_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> b
                     p_code[rel.offset + 3] = (u / 16777216) % 256;
                 }
             }
+        } else if rel.kind == 4 {
+            let sym_cur = cg.syms_head;
+            let target_offset: i64 = -1;
+            while sym_cur != nil {
+                if str_eq(sym_cur.name, rel.sym) {
+                    target_offset = sym_cur.offset;
+                }
+                sym_cur = sym_cur.next;
+            }
+
+            if target_offset >= 0 {
+                let from_offset = rel.offset;
+                let diff = target_offset - from_offset;
+                let b0: i64 = p_code[rel.offset + 0];
+                if b0 < 0 { b0 = b0 + 256; }
+                let rd = b0 % 32;
+
+                let off = diff;
+                if off < 0 { off = off + 2097152; }
+                off = off % 2097152;
+                let immlo = off % 4;
+                let immhi = (off / 4) % 524288;
+                let inst: i64 = 268435456 + (immlo * 536870912) + (immhi * 32) + rd;
+                let u = inst;
+                p_code[rel.offset + 0] = u % 256;
+                p_code[rel.offset + 1] = (u / 256) % 256;
+                p_code[rel.offset + 2] = (u / 65536) % 256;
+                p_code[rel.offset + 3] = (u / 16777216) % 256;
+            }
         }
         rel = rel.next;
     }

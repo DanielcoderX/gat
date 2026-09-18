@@ -250,28 +250,28 @@ fn a64_strb_idx(code: ByteBuffer, rd: i64, rn: i64, rm: i64) {
 // LDRH Wd, [Xn, #pimm] (scaled by 2)
 fn a64_ldrh_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
     let scale = (offset / 2) % 4096;
-    let inst: i64 = 2033221632 + (scale * 1024) + (rn * 32) + rd;
+    let inst: i64 = 2034237440 + (scale * 1024) + (rn * 32) + rd;
     a64_emit(code, inst);
 }
 
 // STRH Wd, [Xn, #pimm] (scaled by 2)
 fn a64_strh_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
     let scale = (offset / 2) % 4096;
-    let inst: i64 = 2030075904 + (scale * 1024) + (rn * 32) + rd;
+    let inst: i64 = 2030043136 + (scale * 1024) + (rn * 32) + rd;
     a64_emit(code, inst);
 }
 
 // LDR Wd, [Xn, #pimm] (32-bit, scaled by 4)
 fn a64_ldr_w_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
     let scale = (offset / 4) % 4096;
-    let inst: i64 = 3106979840 + (scale * 1024) + (rn * 32) + rd;
+    let inst: i64 = 3107979264 + (scale * 1024) + (rn * 32) + rd;
     a64_emit(code, inst);
 }
 
 // STR Wd, [Xn, #pimm] (32-bit, scaled by 4)
 fn a64_str_w_imm(code: ByteBuffer, rd: i64, rn: i64, offset: i64) {
     let scale = (offset / 4) % 4096;
-    let inst: i64 = 3103834112 + (scale * 1024) + (rn * 32) + rd;
+    let inst: i64 = 3103784960 + (scale * 1024) + (rn * 32) + rd;
     a64_emit(code, inst);
 }
 
@@ -360,6 +360,18 @@ fn a64_adrp(code: ByteBuffer, rd: i64, imm21: i64) {
     let inst: i64 = 2415919104 + (immlo * 536870912) + (immhi * 32) + rd;
     a64_emit(code, inst);
 }
+
+// ADR Rd, signed_offset21 (relative byte offset within +/- 1MB)
+fn a64_adr(code: ByteBuffer, rd: i64, offset_bytes: i64) {
+    let off = offset_bytes;
+    if off < 0 { off = off + 2097152; }
+    off = off % 2097152;
+    let immlo = off % 4;
+    let immhi = (off / 4) % 524288;
+    let inst: i64 = 268435456 + (immlo * 536870912) + (immhi * 32) + rd;
+    a64_emit(code, inst);
+}
+
 
 
 
