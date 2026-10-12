@@ -1,0 +1,9 @@
+fn add(a: i64, b: i64) -> i64 {
+    return a + b;
+}
+
+fn main() -> i64 {
+    let x = 40;
+    let y = 2;
+    return add(x, y);
+}

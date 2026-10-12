@@ -6,13 +6,16 @@ let TARGET_WINDOWS: i64 = 1;
 let TARGET_LINUX: i64 = 2;
 let TARGET_LINUX_ARM64: i64 = 3;
 let TARGET_MACOS_ARM64: i64 = 4;
+let TARGET_WASM: i64 = 5;
 
 let ARCH_X86_64: i64 = 1;
 let ARCH_AARCH64: i64 = 2;
+let ARCH_WASM: i64 = 3;
 
 let OS_WINDOWS: i64 = 1;
 let OS_LINUX: i64 = 2;
 let OS_MACOS: i64 = 3;
+let OS_WASM: i64 = 4;
 
 fn str_starts_with_prefix(s: string, prefix: string) -> bool {
     if s == nil || prefix == nil { return false; }
@@ -122,7 +125,29 @@ fn target_get_macos_arm64() -> TargetBackend {
     };
 }
 
+fn target_get_wasm() -> TargetBackend {
+    return new TargetBackend {
+        target_id: 5,
+        arch_id: 3,
+        os_id: 4,
+        name: "wasm",
+        shadow_space: 0,
+        max_reg_args: 8,
+        arg_reg1: 0,
+        arg_reg2: 1,
+        arg_reg3: 2,
+        arg_reg4: 3,
+        arg_reg5: 4,
+        arg_reg6: 5,
+        arg_reg7: 6,
+        arg_reg8: 7
+    };
+}
+
 fn target_from_name(name: string) -> TargetBackend {
+    if str_eq(name, "wasm") || str_eq(name, "wasm32") || str_eq(name, "wasm64") || str_eq(name, "webassembly") {
+        return target_get_wasm();
+    }
     if str_eq(name, "macos-arm64") || str_eq(name, "macos") || str_eq(name, "darwin") || str_eq(name, "darwin-arm64") || str_eq(name, "macho-arm64") || str_eq(name, "apple-arm64") {
         return target_get_macos_arm64();
     }
@@ -133,6 +158,11 @@ fn target_from_name(name: string) -> TargetBackend {
         return target_get_linux();
     }
     return target_get_windows();
+}
+
+fn target_is_wasm(t: TargetBackend) -> bool {
+    if t == nil { return false; }
+    return t.target_id == 5;
 }
 
 fn target_is_macos(t: TargetBackend) -> bool {

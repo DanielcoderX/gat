@@ -95,6 +95,14 @@ fn tcp_send(stream: TcpStream, text: string) -> i64 {
     return net_send(stream.fd, text, len);
 }
 
+// Send binary buffer over TCP stream
+fn tcp_send_bytes(stream: TcpStream, buf: raw i8, len: i64) -> i64 {
+    if stream == nil || stream.fd < 0 || len <= 0 {
+        return 0;
+    }
+    return net_send(stream.fd, buf, len);
+}
+
 // Receive incoming data from the TCP stream as a string.
 // Allocates a buffer of `max_len + 1` bytes and returns the received string.
 // Returns an empty string on EOF (connection closed by peer) or error.

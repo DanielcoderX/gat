@@ -9,3 +9,5 @@ bin/main.exe
 tmp_*
 *.zip
 .gat/
+dist/
+output.exe

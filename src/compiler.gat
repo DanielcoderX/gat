@@ -18,5 +18,6 @@ import "src/codegen_arm64.gat";
 import "src/pe.gat";
 import "src/elf.gat";
 import "src/macho.gat";
+import "src/wasm.gat";
 import "src/explain.gat";
 import "src/main.gat";

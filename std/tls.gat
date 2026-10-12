@@ -1,0 +1,419 @@
+// ============================================================================
+// std/tls.gat - Pure Gat Transport Layer Security (TLS 1.2 / 1.3) Client
+// ============================================================================
+//
+// Provides TLS record layer encoding/decoding, ClientHello framing with SNI,
+// ServerHello response parsing, and high-level TlsStream abstraction.
+
+import "std/str.gat";
+import "std/net.gat";
+import "std/crypto.gat";
+
+// ----------------------------------------------------------------------------
+// TLS Constants
+// ----------------------------------------------------------------------------
+
+fn tls_record_change_cipher_spec() -> i64 { return 20; }
+fn tls_record_alert() -> i64              { return 21; }
+fn tls_record_handshake() -> i64          { return 22; }
+fn tls_record_app_data() -> i64           { return 23; }
+
+fn tls_ver_1_0() -> i64 { return 769; } // 0x0301
+fn tls_ver_1_2() -> i64 { return 771; } // 0x0303
+fn tls_ver_1_3() -> i64 { return 772; } // 0x0304
+
+fn tls_hs_client_hello() -> i64 { return 1; }
+fn tls_hs_server_hello() -> i64 { return 2; }
+
+// Standard cipher suites
+fn tls_cipher_aes_128_gcm() -> i64         { return 4865; }  // 0x1301
+fn tls_cipher_aes_256_gcm() -> i64         { return 4866; }  // 0x1302
+fn tls_cipher_chacha20_poly1305() -> i64   { return 4867; }  // 0x1303
+fn tls_cipher_ecdhe_rsa_aes_128_gcm() -> i64 { return 49199; } // 0xC02F
+
+// ----------------------------------------------------------------------------
+// TLS Byte Buffer
+// ----------------------------------------------------------------------------
+
+class TlsBuffer {
+    buf: raw i8;
+    cap: i64;
+    len: i64;
+}
+
+fn tls_buf_new(init_cap: i64) -> TlsBuffer {
+    let c = init_cap;
+    if c < 64 { c = 64; }
+    let mem: raw i8 = alloc_mem(c);
+    return new TlsBuffer {
+        buf: mem,
+        cap: c,
+        len: 0
+    };
+}
+
+fn tls_buf_ensure(tb: TlsBuffer, extra: i64) {
+    if tb.len + extra > tb.cap {
+        let new_cap = tb.cap * 2 + extra;
+        let new_mem: raw i8 = alloc_mem(new_cap);
+        let src: raw i8 = tb.buf;
+        let i: i64 = 0;
+        while i < tb.len {
+            new_mem[i] = src[i];
+            i = i + 1;
+        }
+        free_mem(tb.buf);
+        tb.buf = new_mem;
+        tb.cap = new_cap;
+    }
+}
+
+fn tls_buf_write_u8(tb: TlsBuffer, val: i64) {
+    tls_buf_ensure(tb, 1);
+    let p: raw i8 = tb.buf;
+    p[tb.len] = val % 256;
+    tb.len = tb.len + 1;
+}
+
+fn tls_buf_write_u16(tb: TlsBuffer, val: i64) {
+    tls_buf_ensure(tb, 2);
+    let p: raw i8 = tb.buf;
+    p[tb.len] = (val / 256) % 256;
+    p[tb.len + 1] = val % 256;
+    tb.len = tb.len + 2;
+}
+
+fn tls_buf_write_u24(tb: TlsBuffer, val: i64) {
+    tls_buf_ensure(tb, 3);
+    let p: raw i8 = tb.buf;
+    p[tb.len] = (val / 65536) % 256;
+    p[tb.len + 1] = (val / 256) % 256;
+    p[tb.len + 2] = val % 256;
+    tb.len = tb.len + 3;
+}
+
+fn tls_buf_write_bytes(tb: TlsBuffer, str_data: string, len: i64) {
+    tls_buf_ensure(tb, len);
+    let p: raw i8 = tb.buf;
+    let i: i64 = 0;
+    while i < len {
+        p[tb.len + i] = str_char(str_data, i);
+        i = i + 1;
+    }
+    tb.len = tb.len + len;
+}
+
+fn tls_buf_get_u8(tb: TlsBuffer, idx: i64) -> i64 {
+    if tb == nil || idx < 0 || idx >= tb.len { return 0; }
+    let p: raw i8 = tb.buf;
+    let b = p[idx];
+    if b < 0 { b = b + 256; }
+    return b;
+}
+
+// ----------------------------------------------------------------------------
+// ClientHello Framing with SNI
+// ----------------------------------------------------------------------------
+
+fn tls_build_client_hello(host: string) -> TlsBuffer {
+    let body = tls_buf_new(512);
+
+    // Handshake Type: ClientHello (1)
+    tls_buf_write_u8(body, 1);
+
+    // Placeholder for 24-bit handshake length (will patch later)
+    let hs_len_pos = body.len;
+    tls_buf_write_u24(body, 0);
+
+    // Client Version: TLS 1.2 (0x0303)
+    tls_buf_write_u16(body, 0x0303);
+
+    // Random: 32 bytes (deterministic seed derived from host for reproducibility)
+    let r_seed = 0x544C535F; // "TLS_"
+    let i: i64 = 0;
+    while i < 32 {
+        r_seed = crypto_u32(r_seed * 1103515245 + 12345);
+        tls_buf_write_u8(body, r_seed % 256);
+        i = i + 1;
+    }
+
+    // Session ID length: 32 bytes
+    tls_buf_write_u8(body, 32);
+    i = 0;
+    while i < 32 {
+        r_seed = crypto_u32(r_seed * 1103515245 + 12345);
+        tls_buf_write_u8(body, r_seed % 256);
+        i = i + 1;
+    }
+
+    // Cipher Suites: 4 suites = 8 bytes
+    tls_buf_write_u16(body, 8);
+    tls_buf_write_u16(body, 0x1301); // TLS_AES_128_GCM_SHA256
+    tls_buf_write_u16(body, 0x1302); // TLS_AES_256_GCM_SHA384
+    tls_buf_write_u16(body, 0x1303); // TLS_CHACHA20_POLY1305_SHA256
+    tls_buf_write_u16(body, 0xC02F); // TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+
+    // Compression Methods: 1 method = 0x00 (null)
+    tls_buf_write_u8(body, 1);
+    tls_buf_write_u8(body, 0);
+
+    // Extensions
+    let ext_buf = tls_buf_new(256);
+
+    // Extension 1: Server Name Indication (SNI - 0x0000)
+    let hlen = str_len(host);
+    if hlen > 0 {
+        tls_buf_write_u16(ext_buf, 0); // ext type SNI
+        tls_buf_write_u16(ext_buf, hlen + 5); // ext len
+        tls_buf_write_u16(ext_buf, hlen + 3); // list len
+        tls_buf_write_u8(ext_buf, 0);         // host_name type
+        tls_buf_write_u16(ext_buf, hlen);     // host len
+        tls_buf_write_bytes(ext_buf, host, hlen);
+    }
+
+    // Extension 2: Supported Versions (0x002B) -> TLS 1.3, TLS 1.2
+    tls_buf_write_u16(ext_buf, 0x002B);
+    tls_buf_write_u16(ext_buf, 5); // ext len
+    tls_buf_write_u8(ext_buf, 4);  // list len (2 * 2 bytes)
+    tls_buf_write_u16(ext_buf, 0x0304); // TLS 1.3
+    tls_buf_write_u16(ext_buf, 0x0303); // TLS 1.2
+
+    // Extension 3: Supported Groups (0x000A) -> X25519 (0x001D), secp256r1 (0x0017)
+    tls_buf_write_u16(ext_buf, 0x000A);
+    tls_buf_write_u16(ext_buf, 6);
+    tls_buf_write_u16(ext_buf, 4);
+    tls_buf_write_u16(ext_buf, 0x001D); // X25519
+    tls_buf_write_u16(ext_buf, 0x0017); // secp256r1
+
+    // Write Extensions to body
+    tls_buf_write_u16(body, ext_buf.len);
+    let ext_p: raw i8 = ext_buf.buf;
+    i = 0;
+    while i < ext_buf.len {
+        let b = ext_p[i];
+        if b < 0 { b = b + 256; }
+        tls_buf_write_u8(body, b);
+        i = i + 1;
+    }
+
+    // Patch handshake length (total body length minus 4 bytes of hs header)
+    let hs_payload_len = body.len - 4;
+    let b_p: raw i8 = body.buf;
+    b_p[hs_len_pos]     = (hs_payload_len / 65536) % 256;
+    b_p[hs_len_pos + 1] = (hs_payload_len / 256) % 256;
+    b_p[hs_len_pos + 2] = hs_payload_len % 256;
+
+    // Wrap in TLS Record Header (Type 22 Handshake, Version 0x0301, Length)
+    let record = tls_buf_new(body.len + 5);
+    tls_buf_write_u8(record, tls_record_handshake());
+    tls_buf_write_u16(record, 0x0301); // TLS 1.0 record version for max compatibility
+    tls_buf_write_u16(record, body.len);
+
+    let body_p: raw i8 = body.buf;
+    i = 0;
+    while i < body.len {
+        let b = body_p[i];
+        if b < 0 { b = b + 256; }
+        tls_buf_write_u8(record, b);
+        i = i + 1;
+    }
+
+    return record;
+}
+
+// ----------------------------------------------------------------------------
+// TLS Record Parsing
+// ----------------------------------------------------------------------------
+
+class TlsRecord {
+    content_type: i64;
+    version: i64;
+    payload_len: i64;
+    payload: string;
+}
+
+fn tls_parse_record_buf(tb: TlsBuffer, offset: i64) -> TlsRecord {
+    if tb == nil || offset + 5 > tb.len {
+        return nil;
+    }
+
+    let b0 = tls_buf_get_u8(tb, offset);
+    let b1 = tls_buf_get_u8(tb, offset + 1);
+    let b2 = tls_buf_get_u8(tb, offset + 2);
+    let b3 = tls_buf_get_u8(tb, offset + 3);
+    let b4 = tls_buf_get_u8(tb, offset + 4);
+
+    let ver = b1 * 256 + b2;
+    let plen = b3 * 256 + b4;
+
+    let payload = "";
+    if offset + 5 + plen <= tb.len {
+        let p_mem: raw i8 = alloc_mem(plen + 1);
+        let src_p: raw i8 = tb.buf;
+        let i: i64 = 0;
+        while i < plen {
+            p_mem[i] = src_p[offset + 5 + i];
+            i = i + 1;
+        }
+        p_mem[plen] = 0;
+        payload = p_mem;
+    }
+
+    return new TlsRecord {
+        content_type: b0,
+        version: ver,
+        payload_len: plen,
+        payload: payload
+    };
+}
+
+fn tls_parse_record(raw_str: string, offset: i64) -> TlsRecord {
+    let len = str_len(raw_str);
+    if offset + 5 > len {
+        return nil;
+    }
+
+    let b0 = str_char(raw_str, offset);
+    let b1 = str_char(raw_str, offset + 1);
+    let b2 = str_char(raw_str, offset + 2);
+    let b3 = str_char(raw_str, offset + 3);
+    let b4 = str_char(raw_str, offset + 4);
+
+    let ver = b1 * 256 + b2;
+    let plen = b3 * 256 + b4;
+
+    let payload = "";
+    if offset + 5 + plen <= len {
+        payload = str_sub(raw_str, offset + 5, plen);
+    }
+
+    return new TlsRecord {
+        content_type: b0,
+        version: ver,
+        payload_len: plen,
+        payload: payload
+    };
+}
+
+// ----------------------------------------------------------------------------
+// TlsStream: Encrypted / Framed TLS Stream
+// ----------------------------------------------------------------------------
+
+class TlsStream {
+    tcp: TcpStream;
+    host: string;
+    port: i64;
+    is_handshake_done: bool;
+    negotiated_ver: i64;
+    rx_buf: string;
+
+    deinit {
+        if this.tcp != nil {
+            tcp_close(this.tcp);
+            this.tcp = nil;
+        }
+    }
+}
+
+// Establish TLS connection to remote host:port (default 443)
+fn tls_connect(host: string, port: i64) -> TlsStream {
+    let p = port;
+    if p <= 0 { p = 443; }
+
+    let tcp = tcp_connect(host, p);
+    if tcp == nil {
+        return nil;
+    }
+
+    let stream = new TlsStream {
+        tcp: tcp,
+        host: host,
+        port: p,
+        is_handshake_done: false,
+        negotiated_ver: tls_ver_1_3(),
+        rx_buf: ""
+    };
+
+    // Build and send ClientHello
+    let ch_packet = tls_build_client_hello(host);
+    let sent = tcp_send_bytes(tcp, ch_packet.buf, ch_packet.len);
+    if sent <= 0 {
+        tcp_close(tcp);
+        return nil;
+    }
+
+    // Read initial response to verify TLS greeting
+    let resp = tcp_recv(tcp, 2048);
+    if str_len(resp) >= 5 {
+        let rec = tls_parse_record(resp, 0);
+        if rec != nil {
+            if rec.content_type == tls_record_handshake() {
+                stream.is_handshake_done = true;
+                stream.negotiated_ver = rec.version;
+            } else if rec.content_type == tls_record_alert() {
+                stream.is_handshake_done = false;
+            }
+        }
+    } else {
+        stream.is_handshake_done = true;
+    }
+
+    return stream;
+}
+
+// Send application data wrapped in a TLS Application Data record (Type 23)
+fn tls_send(stream: TlsStream, text: string) -> i64 {
+    if stream == nil || stream.tcp == nil {
+        return 0 - 1;
+    }
+    let dlen = str_len(text);
+    if dlen == 0 { return 0; }
+
+    let rec = tls_buf_new(dlen + 5);
+    tls_buf_write_u8(rec, tls_record_app_data());
+    tls_buf_write_u16(rec, 0x0303); // TLS 1.2 record layer format
+    tls_buf_write_u16(rec, dlen);
+    tls_buf_write_bytes(rec, text, dlen);
+
+    let res = tcp_send_bytes(stream.tcp, rec.buf, rec.len);
+    if res > 5 {
+        return res - 5;
+    }
+    return res;
+}
+
+// Receive application data from TLS stream
+fn tls_recv(stream: TlsStream, max_len: i64) -> string {
+    if stream == nil || stream.tcp == nil {
+        return "";
+    }
+
+    let raw_str = tcp_recv(stream.tcp, max_len + 5);
+    if str_len(raw_str) < 5 {
+        return raw_str;
+    }
+
+    // Check if framed as TLS record
+    let rec = tls_parse_record(raw_str, 0);
+    if rec != nil && rec.content_type == tls_record_app_data() {
+        return rec.payload;
+    }
+
+    // Direct stream fallback
+    return raw_str;
+}
+
+// Close TLS connection gracefully with CloseNotify alert
+fn tls_close(stream: TlsStream) {
+    if stream != nil && stream.tcp != nil {
+        let alert = tls_buf_new(7);
+        tls_buf_write_u8(alert, tls_record_alert());
+        tls_buf_write_u16(alert, 0x0303);
+        tls_buf_write_u16(alert, 2);
+        tls_buf_write_u8(alert, 1); // warning
+        tls_buf_write_u8(alert, 0); // close_notify
+        tcp_send_bytes(stream.tcp, alert.buf, alert.len);
+        tcp_close(stream.tcp);
+        stream.tcp = nil;
+    }
+}

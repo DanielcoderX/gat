@@ -1,0 +1,267 @@
+// ============================================================================
+// src/wasm.gat - WebAssembly (WASM 1.0) Binary Emitter
+// ============================================================================
+
+fn wasm_write_u32_leb(bb: ByteBuffer, val: i64) {
+    let v = val;
+    let more = true;
+    while more {
+        let b = v % 128;
+        v = v / 128;
+        if v > 0 {
+            bb_write_u8(bb, b + 128);
+        } else {
+            bb_write_u8(bb, b);
+            more = false;
+        }
+    }
+}
+
+fn wasm_write_i64_leb(bb: ByteBuffer, val: i64) {
+    let v = val;
+    let more = true;
+    while more {
+        let byte = v % 128;
+        v = v / 128;
+        if byte < 0 { byte = byte + 128; }
+        if (v == 0 && (byte % 128) < 64) || (v == (0 - 1) && (byte % 128) >= 64) {
+            bb_write_u8(bb, byte);
+            more = false;
+        } else {
+            bb_write_u8(bb, byte + 128);
+        }
+    }
+}
+
+fn wasm_write_section(out: ByteBuffer, sec_id: i64, content: ByteBuffer) {
+    bb_write_u8(out, sec_id);
+    wasm_write_u32_leb(out, content.size);
+    bb_write_bytes(out, content.data, content.size);
+}
+
+fn wasm_build_module(ir_ctx: IRContext, out_path: string) -> bool {
+    let out = bb_new(4096);
+
+    // 1. WASM Header: Magic (\0asm) and Version (1)
+    bb_write_u8(out, 0x00);
+    bb_write_u8(out, 0x61);
+    bb_write_u8(out, 0x73);
+    bb_write_u8(out, 0x6D);
+    bb_write_u32(out, 0x00000001);
+
+    // Count IR functions
+    let num_funcs: i64 = 0;
+    let fn_cur = ir_ctx.funcs_head;
+    while fn_cur != nil {
+        num_funcs = num_funcs + 1;
+        fn_cur = fn_cur.next;
+    }
+
+    // 2. Section 1: Type Section
+    // Define 4 function signatures:
+    // Type 0: () -> ()
+    // Type 1: () -> (i64)
+    // Type 2: (i64) -> (i64)
+    // Type 3: (i64, i64) -> (i64)
+    let sec_type = bb_new(256);
+    wasm_write_u32_leb(sec_type, 4); // 4 types
+
+    // Type 0: () -> ()
+    bb_write_u8(sec_type, 0x60); // func
+    wasm_write_u32_leb(sec_type, 0); // 0 params
+    wasm_write_u32_leb(sec_type, 0); // 0 results
+
+    // Type 1: () -> (i64)
+    bb_write_u8(sec_type, 0x60);
+    wasm_write_u32_leb(sec_type, 0); // 0 params
+    wasm_write_u32_leb(sec_type, 1); // 1 result
+    bb_write_u8(sec_type, 0x7E); // i64
+
+    // Type 2: (i64) -> (i64)
+    bb_write_u8(sec_type, 0x60);
+    wasm_write_u32_leb(sec_type, 1); // 1 param
+    bb_write_u8(sec_type, 0x7E); // i64
+    wasm_write_u32_leb(sec_type, 1); // 1 result
+    bb_write_u8(sec_type, 0x7E); // i64
+
+    // Type 3: (i64, i64) -> (i64)
+    bb_write_u8(sec_type, 0x60);
+    wasm_write_u32_leb(sec_type, 2); // 2 params
+    bb_write_u8(sec_type, 0x7E);
+    bb_write_u8(sec_type, 0x7E);
+    wasm_write_u32_leb(sec_type, 1); // 1 result
+    bb_write_u8(sec_type, 0x7E); // i64
+
+    wasm_write_section(out, 1, sec_type);
+
+    // 3. Section 3: Function Section (type indices for each function)
+    let sec_func = bb_new(256);
+    wasm_write_u32_leb(sec_func, num_funcs);
+    fn_cur = ir_ctx.funcs_head;
+    while fn_cur != nil {
+        if fn_cur.param_count == 0 {
+            wasm_write_u32_leb(sec_func, 1); // Type 1: () -> i64
+        } else if fn_cur.param_count == 1 {
+            wasm_write_u32_leb(sec_func, 2); // Type 2: (i64) -> i64
+        } else {
+            wasm_write_u32_leb(sec_func, 3); // Type 3: (i64, i64) -> i64
+        }
+        fn_cur = fn_cur.next;
+    }
+    wasm_write_section(out, 3, sec_func);
+
+    // 4. Section 5: Memory Section (1 memory, min 1 page, max 16 pages)
+    let sec_mem = bb_new(64);
+    wasm_write_u32_leb(sec_mem, 1); // 1 memory
+    bb_write_u8(sec_mem, 0x01);     // flags: has max
+    wasm_write_u32_leb(sec_mem, 1); // initial 1 page (64KB)
+    wasm_write_u32_leb(sec_mem, 16); // max 16 pages (1MB)
+    wasm_write_section(out, 5, sec_mem);
+
+    // 5. Section 7: Export Section
+    // Export "memory" (kind 2, index 0)
+    // Export each function (kind 0, index i)
+    let sec_export = bb_new(512);
+    wasm_write_u32_leb(sec_export, num_funcs + 1);
+
+    // Export memory
+    let mem_name = "memory";
+    wasm_write_u32_leb(sec_export, str_len(mem_name));
+    bb_write_str(sec_export, mem_name);
+    bb_write_u8(sec_export, 0x02); // kind: memory
+    wasm_write_u32_leb(sec_export, 0); // index: 0
+
+    // Export functions
+    let fn_idx: i64 = 0;
+    fn_cur = ir_ctx.funcs_head;
+    while fn_cur != nil {
+        let export_name = fn_cur.name;
+        if str_starts_with_prefix(export_name, "__gat_user_") {
+            export_name = str_sub(export_name, 11, str_len(export_name) - 11);
+        }
+        wasm_write_u32_leb(sec_export, str_len(export_name));
+        bb_write_str(sec_export, export_name);
+        bb_write_u8(sec_export, 0x00); // kind: func
+        wasm_write_u32_leb(sec_export, fn_idx);
+
+        fn_idx = fn_idx + 1;
+        fn_cur = fn_cur.next;
+    }
+    wasm_write_section(out, 7, sec_export);
+
+    // 6. Section 10: Code Section
+    let sec_code = bb_new(4096);
+    wasm_write_u32_leb(sec_code, num_funcs);
+
+    fn_cur = ir_ctx.funcs_head;
+    while fn_cur != nil {
+        let fn_body = bb_new(512);
+
+        // Locals vector: allocate locals for registers
+        let total_locals = fn_cur.max_local + 8;
+        if total_locals > 0 {
+            wasm_write_u32_leb(fn_body, 1); // 1 local entry
+            wasm_write_u32_leb(fn_body, total_locals); // count
+            bb_write_u8(fn_body, 0x7E); // i64 type
+        } else {
+            wasm_write_u32_leb(fn_body, 0);
+        }
+
+        // Emit instructions
+        let inst = fn_cur.inst_head;
+        while inst != nil {
+            if inst.op == 8 { // IR_OP_CONST_INT
+                bb_write_u8(fn_body, 0x42); // i64.const
+                wasm_write_i64_leb(fn_body, inst.int_val);
+                bb_write_u8(fn_body, 0x21); // local.set
+                wasm_write_u32_leb(fn_body, inst.dest);
+            } else if inst.op == 7 { // IR_OP_COPY
+                bb_write_u8(fn_body, 0x20); // local.get
+                wasm_write_u32_leb(fn_body, inst.src1);
+                bb_write_u8(fn_body, 0x21); // local.set
+                wasm_write_u32_leb(fn_body, inst.dest);
+            } else if inst.op == 11 { // IR_OP_BIN_OP
+                bb_write_u8(fn_body, 0x20); // local.get src1
+                wasm_write_u32_leb(fn_body, inst.src1);
+                bb_write_u8(fn_body, 0x20); // local.get src2
+                wasm_write_u32_leb(fn_body, inst.src2);
+
+                if inst.int_val == 30 {      // TOK_PLUS
+                    bb_write_u8(fn_body, 0x7C); // i64.add
+                } else if inst.int_val == 31 { // TOK_MINUS
+                    bb_write_u8(fn_body, 0x7D); // i64.sub
+                } else if inst.int_val == 32 { // TOK_STAR
+                    bb_write_u8(fn_body, 0x7E); // i64.mul
+                } else if inst.int_val == 33 { // TOK_SLASH
+                    bb_write_u8(fn_body, 0x7F); // i64.div_s
+                } else if inst.int_val == 34 { // TOK_PERCENT
+                    bb_write_u8(fn_body, 0x81); // i64.rem_s
+                } else if inst.int_val == 40 { // TOK_EQ
+                    bb_write_u8(fn_body, 0x51); // i64.eq
+                } else if inst.int_val == 41 { // TOK_NOT_EQ
+                    bb_write_u8(fn_body, 0x52); // i64.ne
+                } else if inst.int_val == 42 { // TOK_LT
+                    bb_write_u8(fn_body, 0x53); // i64.lt_s
+                } else if inst.int_val == 44 { // TOK_GT
+                    bb_write_u8(fn_body, 0x54); // i64.gt_s
+                } else {
+                    bb_write_u8(fn_body, 0x7C); // fallback i64.add
+                }
+
+                bb_write_u8(fn_body, 0x21); // local.set dest
+                wasm_write_u32_leb(fn_body, inst.dest);
+            } else if inst.op == 17 { // IR_OP_RETURN
+                if inst.src1 > 0 {
+                    bb_write_u8(fn_body, 0x20); // local.get
+                    wasm_write_u32_leb(fn_body, inst.src1);
+                } else {
+                    bb_write_u8(fn_body, 0x42); // i64.const 0
+                    wasm_write_i64_leb(fn_body, 0);
+                }
+                bb_write_u8(fn_body, 0x0F); // return
+            }
+
+            inst = inst.next;
+        }
+
+        // Implicit return if needed
+        bb_write_u8(fn_body, 0x42); // i64.const 0
+        wasm_write_i64_leb(fn_body, 0);
+        bb_write_u8(fn_body, 0x0B); // end opcode
+
+        // Write function body size and bytes to sec_code
+        wasm_write_u32_leb(sec_code, fn_body.size);
+        bb_write_bytes(sec_code, fn_body.data, fn_body.size);
+
+        fn_cur = fn_cur.next;
+    }
+    wasm_write_section(out, 10, sec_code);
+
+    // 7. Section 11: Data Section (embed string literals)
+    if ir_ctx.strings_head != nil {
+        let sec_data = bb_new(1024);
+        wasm_write_u32_leb(sec_data, 1); // 1 segment
+        bb_write_u8(sec_data, 0x00);     // active segment in memory 0
+        bb_write_u8(sec_data, 0x41);     // i32.const offset
+        wasm_write_u32_leb(sec_data, 1024); // base offset 1024
+        bb_write_u8(sec_data, 0x0B);     // end
+
+        let total_str_bytes = bb_new(512);
+        let sc = ir_ctx.strings_head;
+        while sc != nil {
+            bb_write_str(total_str_bytes, sc.val);
+            bb_write_u8(total_str_bytes, 0);
+            sc = sc.next;
+        }
+        wasm_write_u32_leb(sec_data, total_str_bytes.size);
+        bb_write_bytes(sec_data, total_str_bytes.data, total_str_bytes.size);
+
+        wasm_write_section(out, 11, sec_data);
+    }
+
+    let written = write_file(out_path, out.data, out.size);
+    if written > 0 {
+        return true;
+    }
+    return false;
+}

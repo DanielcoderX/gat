@@ -123,32 +123,36 @@ fn main() -> i64 {
     ir_build_program(ir_ctx, prog);
     opt_optimize_program(ir_ctx);
 
-    let is_aarch64 = target_is_arm64(target_backend);
-
-    let cg: CodeGen = cg_new_target(target_backend);
-    if is_aarch64 {
-        cg_arm64_emit_runtime(cg);
-    } else {
-        cg_emit_runtime(cg);
-    }
-
-    let fn_cur = ir_ctx.funcs_head;
-    while fn_cur != nil {
-        if is_aarch64 {
-            cg_arm64_emit_function(cg, fn_cur);
-        } else {
-            cg_emit_function(cg, fn_cur);
-        }
-        fn_cur = fn_cur.next;
-    }
-
     let success = false;
-    if target_is_macos(target_backend) {
-        success = macho_build_executable(ir_ctx, cg, out_path);
-    } else if target_is_linux(target_backend) {
-        success = elf_build_executable(ir_ctx, cg, out_path);
+    if target_is_wasm(target_backend) {
+        success = wasm_build_module(ir_ctx, out_path);
     } else {
-        success = pe_build_executable(ir_ctx, cg, out_path);
+        let is_aarch64 = target_is_arm64(target_backend);
+
+        let cg: CodeGen = cg_new_target(target_backend);
+        if is_aarch64 {
+            cg_arm64_emit_runtime(cg);
+        } else {
+            cg_emit_runtime(cg);
+        }
+
+        let fn_cur = ir_ctx.funcs_head;
+        while fn_cur != nil {
+            if is_aarch64 {
+                cg_arm64_emit_function(cg, fn_cur);
+            } else {
+                cg_emit_function(cg, fn_cur);
+            }
+            fn_cur = fn_cur.next;
+        }
+
+        if target_is_macos(target_backend) {
+            success = macho_build_executable(ir_ctx, cg, out_path);
+        } else if target_is_linux(target_backend) {
+            success = elf_build_executable(ir_ctx, cg, out_path);
+        } else {
+            success = pe_build_executable(ir_ctx, cg, out_path);
+        }
     }
 
     if success {

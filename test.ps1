@@ -52,14 +52,20 @@ $testCases = @(
     @{ Name = "HTTP Concurrent Server (std/http.gat)"; File = "examples/test_http_concurrent.gat"; Args = @(); Expect = "test_http_concurrent: PASS"; ExpectedCode = 0 },
     @{ Name = "Standard Library Crypto & Hashing (std/crypto.gat)"; File = "examples/test_crypto.gat"; Args = @(); Expect = "All crypto and hashing tests passed successfully!"; ExpectedCode = 0 },
     @{ Name = "Async Event Loop & Polling (std/event.gat)"; File = "examples/test_event.gat"; Args = @(); Expect = "All event loop tests passed successfully!"; ExpectedCode = 0 },
-    @{ Name = "Optimizer Leaf Inlining & Dead Branch Pruning"; File = "examples/test_opt_inline.gat"; Args = @(); Expect = "All inlining and branch folding optimizations verified successfully!"; ExpectedCode = 0 }
+    @{ Name = "Optimizer Leaf Inlining & Dead Branch Pruning"; File = "examples/test_opt_inline.gat"; Args = @(); Expect = "All inlining and branch folding optimizations verified successfully!"; ExpectedCode = 0 },
+    @{ Name = "Standard Library TLS 1.2/1.3 & HTTPS (std/tls.gat)"; File = "examples/test_tls.gat"; Args = @(); Expect = "TLS Record Framing, SNI & HTTPS URL Parsing Verified!"; ExpectedCode = 0 },
+    @{ Name = "WebAssembly WASM 1.0 Emitter Backend"; File = "examples/test_wasm.gat"; PreCmd = "build_wasm"; Args = @(); Expect = "WASM Magic, Version 1.0 & Symbol Exports Verified!"; ExpectedCode = 0 }
 )
 
 $passed = 0
 foreach ($t in $testCases) {
     $outBin = "bin\test_out.exe"
     if (Test-Path $outBin) { Remove-Item -Force $outBin }
-    
+
+    if ($t.PreCmd -eq "build_wasm") {
+        & .\bin\gat.exe build examples\test_wasm_src.gat -o bin\test_out.wasm --target=wasm | Out-Null
+    }
+
     & .\bin\gatc.exe $t.File -o $outBin
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  [FAIL] $($t.Name): Compilation error" -ForegroundColor Red

@@ -25,6 +25,7 @@ Comprehensive documentation of all built-in modules in the Gat Standard Library.
 10. [`std/http.gat` - HTTP 1.1 Client, Server & JSON Router](#10-stdhttpgat---http-11-client-server--json-router)
 11. [`std/crypto.gat` - Cryptography, Hashing & Base64](#11-stdcryptogat---cryptography-hashing--base64)
 12. [`std/event.gat` - Asynchronous Event Loop & Polling](#12-stdeventgat---asynchronous-event-loop--polling)
+13. [`std/tls.gat` - Transport Layer Security & HTTPS Client](#13-stdtlsgat---transport-layer-security--https-client)
 
 ---
 
@@ -610,4 +611,33 @@ let total = event_loop_run(loop);
 * `event_loop_step(loop: EventLoop) -> i64` - Advances loop by one tick and returns number of events handled.
 * `event_loop_run(loop: EventLoop) -> i64` - Drives event loop until all pending tasks have completed.
 * `event_loop_stop(loop: EventLoop)` - Stops event loop execution.
+
+---
+
+## 13. `std/tls.gat` - Transport Layer Security & HTTPS Client
+
+Import: `import "std/tls.gat";`
+
+Provides TLS record layer encoding/decoding, ClientHello generation with Server Name Indication (SNI), cipher suite negotiation, and encrypted streaming over TCP. Seamlessly integrated into `std/http.gat` for HTTPS requests.
+
+```gat
+import "std/tls.gat";
+import "std/http.gat";
+
+// High-level HTTPS request
+let res = https_get("https://gat-lang.org/api/v1");
+
+// Low-level TLS Stream
+let stream = tls_connect("gat-lang.org", 443);
+tls_send(stream, "GET / HTTP/1.1\r\nHost: gat-lang.org\r\n\r\n");
+let reply = tls_recv(stream, 4096);
+tls_close(stream);
+```
+
+* `tls_connect(host: string, port: i64) -> TlsStream` - Connects to remote host on specified port (default 443) and performs TLS ClientHello handshake.
+* `tls_send(stream: TlsStream, data: string) -> i64` - Frames data in a TLS Application Data record (ContentType 23) and transmits over socket.
+* `tls_recv(stream: TlsStream, max_len: i64) -> string` - Reads and decrypts/unwraps application data from TLS stream.
+* `tls_close(stream: TlsStream)` - Sends TLS CloseNotify alert and cleanly shuts down TCP socket.
+* `https_get(url: string) -> Result<HttpResponse, string>` - Convenience HTTP GET function with automatic TLS negotiation when URL scheme is `https://`.
+
 

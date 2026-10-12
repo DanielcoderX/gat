@@ -1,0 +1,100 @@
+// ============================================================================
+// examples/test_tls.gat - Unit Tests for std/tls.gat and HTTPS parsing
+// ============================================================================
+
+import "std/str.gat";
+import "std/tls.gat";
+import "std/http.gat";
+
+fn main() -> i64 {
+    print("=== Running std/tls.gat & HTTPS Tests ===\n");
+
+    // 1. ClientHello Generation
+    let ch = tls_build_client_hello("api.gat-lang.org");
+    if ch.len <= 40 {
+        print("FAIL: ClientHello length too short\n");
+        return 1;
+    }
+
+    // Check TLS record header
+    let rec_type = tls_buf_get_u8(ch, 0);
+    if rec_type != tls_record_handshake() {
+        print("FAIL: Record type must be Handshake (22)\n");
+        return 1;
+    }
+
+    let rec_ver_hi = tls_buf_get_u8(ch, 1);
+    let rec_ver_lo = tls_buf_get_u8(ch, 2);
+    if rec_ver_hi != 3 || rec_ver_lo != 1 {
+        print("FAIL: Record layer version must be TLS 1.0 (0x0301)\n");
+        return 1;
+    }
+
+    let hs_type = tls_buf_get_u8(ch, 5);
+    if hs_type != 1 {
+        print("FAIL: Handshake type must be ClientHello (1)\n");
+        return 1;
+    }
+
+    // 2. TLS Record Parsing
+    let rec = tls_parse_record_buf(ch, 0);
+    if rec == nil {
+        print("FAIL: Parsed record must not be nil\n");
+        return 1;
+    }
+    if rec.content_type != 22 {
+        print("FAIL: Parsed record type must be 22\n");
+        return 1;
+    }
+    if rec.version != 769 {
+        print("FAIL: Parsed record version must be 769 (0x0301)\n");
+        return 1;
+    }
+    if rec.payload_len <= 0 {
+        print("FAIL: Parsed record payload length must match\n");
+        return 1;
+    }
+
+    // 3. HTTPS URL Parsing
+    let url_res = http_parse_url("https://gat-lang.org:8443/docs/index.html");
+    if !result_is_ok(url_res) {
+        print("FAIL: HTTPS URL parse must succeed\n");
+        return 1;
+    }
+    let u: HttpUrl = result_unwrap(url_res);
+    if !u.is_tls {
+        print("FAIL: URL is_tls flag must be true\n");
+        return 1;
+    }
+    if !str_eq(u.host, "gat-lang.org") {
+        print("FAIL: URL host mismatch\n");
+        return 1;
+    }
+    if u.port != 8443 {
+        print("FAIL: URL port mismatch\n");
+        return 1;
+    }
+    if !str_eq(u.path, "/docs/index.html") {
+        print("FAIL: URL path mismatch\n");
+        return 1;
+    }
+
+    // 4. Default HTTPS port
+    let url_def = http_parse_url("https://secure.example.com/api");
+    if !result_is_ok(url_def) {
+        print("FAIL: Default HTTPS URL parse must succeed\n");
+        return 1;
+    }
+    let u_def: HttpUrl = result_unwrap(url_def);
+    if !u_def.is_tls {
+        print("FAIL: Default URL is_tls must be true\n");
+        return 1;
+    }
+    if u_def.port != 443 {
+        print("FAIL: Default HTTPS port must be 443\n");
+        return 1;
+    }
+
+    print("  [PASS] TLS Record Framing, SNI & HTTPS URL Parsing Verified!\n");
+    return 0;
+}

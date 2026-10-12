@@ -10,6 +10,7 @@ import "std/net.gat";
 import "std/json.gat";
 import "std/thread.gat";
 import "std/sync.gat";
+import "std/tls.gat";
 
 // ============================================================================
 // HTTP Headers (Case-Insensitive Storage)
@@ -433,6 +434,7 @@ class HttpUrl {
     host: string;
     port: i64;
     path: string;
+    is_tls: bool;
 }
 
 fn http_parse_url(url: string) -> Result<HttpUrl, string> {
@@ -441,7 +443,13 @@ fn http_parse_url(url: string) -> Result<HttpUrl, string> {
     }
 
     let u = url;
-    if str_find(u, "http://") == 0 {
+    let is_tls = false;
+    let default_port: i64 = 80;
+    if str_find(u, "https://") == 0 {
+        u = str_sub(u, 8, str_len(u) - 8);
+        is_tls = true;
+        default_port = 443;
+    } else if str_find(u, "http://") == 0 {
         u = str_sub(u, 7, str_len(u) - 7);
     }
 
@@ -454,7 +462,7 @@ fn http_parse_url(url: string) -> Result<HttpUrl, string> {
     }
 
     let host = host_port;
-    let port: i64 = 80;
+    let port: i64 = default_port;
     let col_idx = str_find(host_port, ":");
     if col_idx >= 0 {
         host = str_sub(host_port, 0, col_idx);
@@ -473,7 +481,8 @@ fn http_parse_url(url: string) -> Result<HttpUrl, string> {
     return Result.Ok(new HttpUrl {
         host: host,
         port: port,
-        path: path
+        path: path,
+        is_tls: is_tls
     });
 }
 
@@ -483,11 +492,6 @@ fn http_request(method: string, url: string, custom_headers: HttpHeaders, body: 
         return Result.Err(result_unwrap_err(url_res));
     }
     let u: HttpUrl = result_unwrap(url_res);
-
-    let stream = tcp_connect(u.host, u.port);
-    if stream == nil {
-        return Result.Err(str_concat("failed to connect to ", str_concat(u.host, str_concat(":", str_from_int(u.port)))));
-    }
 
     let req = http_request_new(method, u.path);
     http_headers_set(req.headers, "Host", str_concat(u.host, str_concat(":", str_from_int(u.port))));
@@ -510,30 +514,59 @@ fn http_request(method: string, url: string, custom_headers: HttpHeaders, body: 
     }
 
     let wire_req = http_format_request(req);
-    let sent = tcp_send(stream, wire_req);
-    if sent < 0 {
-        tcp_close(stream);
-        return Result.Err("failed to send HTTP request data");
-    }
-
-    // Read response until EOF
     let resp_sb = sb_new(4096);
-    let keep_reading = true;
-    while keep_reading {
-        let chunk = tcp_recv(stream, 4096);
-        if str_len(chunk) == 0 {
-            keep_reading = false;
-        } else {
-            sb_append(resp_sb, chunk);
+
+    if u.is_tls {
+        let tls_stream = tls_connect(u.host, u.port);
+        if tls_stream == nil {
+            return Result.Err(str_concat("failed to establish TLS connection to ", str_concat(u.host, str_concat(":", str_from_int(u.port)))));
         }
+        let sent = tls_send(tls_stream, wire_req);
+        if sent < 0 {
+            tls_close(tls_stream);
+            return Result.Err("failed to send TLS HTTP request data");
+        }
+        let keep_reading = true;
+        while keep_reading {
+            let chunk = tls_recv(tls_stream, 4096);
+            if str_len(chunk) == 0 {
+                keep_reading = false;
+            } else {
+                sb_append(resp_sb, chunk);
+            }
+        }
+        tls_close(tls_stream);
+    } else {
+        let stream = tcp_connect(u.host, u.port);
+        if stream == nil {
+            return Result.Err(str_concat("failed to connect to ", str_concat(u.host, str_concat(":", str_from_int(u.port)))));
+        }
+        let sent = tcp_send(stream, wire_req);
+        if sent < 0 {
+            tcp_close(stream);
+            return Result.Err("failed to send HTTP request data");
+        }
+        let keep_reading = true;
+        while keep_reading {
+            let chunk = tcp_recv(stream, 4096);
+            if str_len(chunk) == 0 {
+                keep_reading = false;
+            } else {
+                sb_append(resp_sb, chunk);
+            }
+        }
+        tcp_close(stream);
     }
-    tcp_close(stream);
 
     let raw_resp = sb_to_string(resp_sb);
     return http_parse_response(raw_resp);
 }
 
 fn http_get(url: string) -> Result<HttpResponse, string> {
+    return http_request("GET", url, nil, "");
+}
+
+fn https_get(url: string) -> Result<HttpResponse, string> {
     return http_request("GET", url, nil, "");
 }
 
