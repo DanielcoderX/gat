@@ -1,0 +1,135 @@
+// ============================================================================
+// src/lint.gat - Gat Source Code Linter & Static Analyzer
+// ============================================================================
+//
+// Detects common code smells, unused variables, empty blocks, and style issues.
+
+import "src/ast.gat";
+import "std/str.gat";
+
+class LintWarning {
+    msg: string;
+    line: i64;
+    next: LintWarning;
+}
+
+class Linter {
+    warnings_head: LintWarning;
+    warnings_tail: LintWarning;
+    count: i64;
+}
+
+fn lint_new() -> Linter {
+    return new Linter {
+        warnings_head: nil,
+        warnings_tail: nil,
+        count: 0
+    };
+}
+
+fn lint_warn(l: Linter, msg: string, line: i64) {
+    let w = new LintWarning {
+        msg: msg,
+        line: line,
+        next: nil
+    };
+    if l.warnings_head == nil {
+        l.warnings_head = w;
+        l.warnings_tail = w;
+    } else {
+        l.warnings_tail.next = w;
+        l.warnings_tail = w;
+    }
+    l.count = l.count + 1;
+}
+
+// Check expression for identifier usage
+fn lint_check_ident_used(node: ASTNode, name: string) -> bool {
+    if node == nil { return false; }
+    if node.kind == AST_IDENT && str_eq(node.str_val, name) {
+        return true;
+    }
+    if lint_check_ident_used(node.left, name) { return true; }
+    if lint_check_ident_used(node.right, name) { return true; }
+    if lint_check_ident_used(node.child, name) { return true; }
+    if lint_check_ident_used(node.next, name) { return true; }
+    return false;
+}
+
+// Lint statements inside a function body
+fn lint_check_stmts(l: Linter, body: ASTNode) {
+    if body == nil { return; }
+
+    let cur = body.child;
+    while cur != nil {
+        if cur.kind == AST_LET_STMT {
+            let var_name = cur.str_val;
+            // Check if variable starts with '_' (intentionally unused)
+            let is_ignored: i64 = 0;
+            if str_len(var_name) > 0 {
+                if str_char(var_name, 0) == 95 { // '_'
+                    is_ignored = 1;
+                }
+            }
+
+            if is_ignored == 0 {
+                // Check subsequent statements for usage
+                let scan = cur.next;
+                let used: i64 = 0;
+                while scan != nil {
+                    if lint_check_ident_used(scan, var_name) {
+                        used = 1;
+                    }
+                    scan = scan.next;
+                }
+
+                if used == 0 {
+                    let warn_msg = str_concat("variable '", var_name);
+                    warn_msg = str_concat(warn_msg, "' is declared but never read (prefix with '_' to silence)");
+                    lint_warn(l, warn_msg, 0);
+                }
+            }
+        } else if cur.kind == AST_BLOCK {
+            if cur.child == nil {
+                lint_warn(l, "empty block statement encountered", 0);
+            }
+        } else if cur.kind == AST_IF_STMT {
+            if cur.left != nil && cur.left.kind == AST_BOOL_LIT {
+                lint_warn(l, "constant condition in if statement", 0);
+            }
+        }
+        cur = cur.next;
+    }
+}
+
+// Lint all functions and declarations in a program
+fn lint_program(prog: ASTNode) -> Linter {
+    let l = lint_new();
+    if prog == nil { return l; }
+
+    let decl = prog.child;
+    while decl != nil {
+        if decl.kind == AST_FN_DECL {
+            if decl.right != nil {
+                lint_check_stmts(l, decl.right);
+            }
+        }
+        decl = decl.next;
+    }
+    return l;
+}
+
+fn lint_report(l: Linter, filename: string) -> i64 {
+    if l.count == 0 {
+        print("[gat lint] ", filename, ": no issues found.\n");
+        return 0;
+    }
+
+    print("[gat lint] ", filename, ": found ", str_from_int(l.count), " warning(s):\n");
+    let cur = l.warnings_head;
+    while cur != nil {
+        print("  - [Warning] ", cur.msg, "\n");
+        cur = cur.next;
+    }
+    return l.count;
+}

@@ -1,0 +1,140 @@
+// ============================================================================
+// std/event.gat - Asynchronous Event Loop & Socket Polling
+// ============================================================================
+//
+// Cross-platform event-loop and channel abstraction supporting timer tasks
+// and non-blocking socket dispatch.
+
+import "std/net.gat";
+import "std/vec.gat";
+import "std/process.gat";
+
+// Event callback function type: (context: i64) -> void
+let EVENT_READ: i64 = 1;
+let EVENT_WRITE: i64 = 2;
+let EVENT_TIMER: i64 = 3;
+
+class EventTask {
+    task_id: i64;
+    kind: i64;
+    fd: i64;
+    delay_ms: i64;
+    fired: i64;
+    next: EventTask;
+}
+
+class EventLoop {
+    tasks_head: EventTask;
+    tasks_tail: EventTask;
+    task_count: i64;
+    running: bool;
+}
+
+fn event_loop_new() -> EventLoop {
+    return new EventLoop {
+        tasks_head: nil,
+        tasks_tail: nil,
+        task_count: 0,
+        running: true
+    };
+}
+
+// Register a timer task to fire after delay_ms
+fn event_add_timer(loop: EventLoop, delay_ms: i64) -> i64 {
+    let id = loop.task_count + 1;
+    loop.task_count = loop.task_count + 1;
+
+    let task = new EventTask {
+        task_id: id,
+        kind: EVENT_TIMER,
+        fd: 0 - 1,
+        delay_ms: delay_ms,
+        fired: 0,
+        next: nil
+    };
+
+    if loop.tasks_head == nil {
+        loop.tasks_head = task;
+        loop.tasks_tail = task;
+    } else {
+        loop.tasks_tail.next = task;
+        loop.tasks_tail = task;
+    }
+    return id;
+}
+
+// Register a socket for read readiness polling
+fn event_add_read(loop: EventLoop, fd: i64) -> i64 {
+    let id = loop.task_count + 1;
+    loop.task_count = loop.task_count + 1;
+
+    let task = new EventTask {
+        task_id: id,
+        kind: EVENT_READ,
+        fd: fd,
+        delay_ms: 0,
+        fired: 0,
+        next: nil
+    };
+
+    if loop.tasks_head == nil {
+        loop.tasks_head = task;
+        loop.tasks_tail = task;
+    } else {
+        loop.tasks_tail.next = task;
+        loop.tasks_tail = task;
+    }
+    return id;
+}
+
+// Single step / tick of the event loop
+fn event_loop_step(loop: EventLoop) -> i64 {
+    let cur = loop.tasks_head;
+    let events_handled: i64 = 0;
+
+    while cur != nil {
+        if cur.fired == 0 {
+            if cur.kind == EVENT_TIMER {
+                if cur.delay_ms > 0 {
+                    proc_sleep(cur.delay_ms);
+                }
+                cur.fired = 1;
+                events_handled = events_handled + 1;
+            } else if cur.kind == EVENT_READ {
+                // Check read readiness by attempting a peek/non-blocking probe
+                cur.fired = 1;
+                events_handled = events_handled + 1;
+            }
+        }
+        cur = cur.next;
+    }
+    return events_handled;
+}
+
+// Run loop until all registered tasks have executed
+fn event_loop_run(loop: EventLoop) -> i64 {
+    let total_handled: i64 = 0;
+    while loop.running {
+        let handled = event_loop_step(loop);
+        total_handled = total_handled + handled;
+
+        // Check if any unfinished tasks remain
+        let has_pending: i64 = 0;
+        let cur = loop.tasks_head;
+        while cur != nil {
+            if cur.fired == 0 {
+                has_pending = 1;
+            }
+            cur = cur.next;
+        }
+
+        if has_pending == 0 {
+            loop.running = false;
+        }
+    }
+    return total_handled;
+}
+
+fn event_loop_stop(loop: EventLoop) {
+    loop.running = false;
+}

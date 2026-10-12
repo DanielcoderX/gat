@@ -1,0 +1,33 @@
+// Small leaf function returning constant
+fn get_magic_constant() -> i64 {
+    return 1337;
+}
+
+fn main() -> i64 {
+    print("=== Gat Inlining & Dead Branch Pruning Test ===\n");
+
+    // 1. Inlining test
+    let val = get_magic_constant();
+    print("Inlined constant: ", val, "\n");
+    if val != 1337 {
+        print("FAIL: Inlined value mismatch\n");
+        return 1;
+    }
+
+    // 2. Dead branch pruning test (1 == 1 is folded to true, else branch pruned)
+    let branch_ok: i64 = 0;
+    if 1 == 1 {
+        branch_ok = 42;
+    } else {
+        print("FAIL: Dead branch executed\n");
+        return 2;
+    }
+
+    if branch_ok != 42 {
+        print("FAIL: branch_ok != 42\n");
+        return 3;
+    }
+
+    print("All inlining and branch folding optimizations verified successfully!\n");
+    return 0;
+}

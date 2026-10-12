@@ -49,7 +49,10 @@ $testCases = @(
     @{ Name = "Standard Library Sockets & Networking"; File = "examples/test_net.gat"; Args = @(); Expect = "All Socket & Networking tests completed successfully!"; ExpectedCode = 0 },
     @{ Name = "JSON Parser & Serializer (std/json.gat)"; File = "examples/test_json.gat"; Args = @(); Expect = "All JSON parser & serializer tests completed successfully!"; ExpectedCode = 0 },
     @{ Name = "HTTP 1.1 Client & Server (std/http.gat)"; File = "examples/test_http.gat"; Args = @(); Expect = "All HTTP 1.1 tests completed successfully!"; ExpectedCode = 0 },
-    @{ Name = "HTTP Concurrent Server (std/http.gat)"; File = "examples/test_http_concurrent.gat"; Args = @(); Expect = "test_http_concurrent: PASS"; ExpectedCode = 0 }
+    @{ Name = "HTTP Concurrent Server (std/http.gat)"; File = "examples/test_http_concurrent.gat"; Args = @(); Expect = "test_http_concurrent: PASS"; ExpectedCode = 0 },
+    @{ Name = "Standard Library Crypto & Hashing (std/crypto.gat)"; File = "examples/test_crypto.gat"; Args = @(); Expect = "All crypto and hashing tests passed successfully!"; ExpectedCode = 0 },
+    @{ Name = "Async Event Loop & Polling (std/event.gat)"; File = "examples/test_event.gat"; Args = @(); Expect = "All event loop tests passed successfully!"; ExpectedCode = 0 },
+    @{ Name = "Optimizer Leaf Inlining & Dead Branch Pruning"; File = "examples/test_opt_inline.gat"; Args = @(); Expect = "All inlining and branch folding optimizations verified successfully!"; ExpectedCode = 0 }
 )
 
 $passed = 0
@@ -160,6 +163,13 @@ if (-not $explainGatOut.Contains("Error [E0002]: Undeclared Identifier")) {
     exit 1
 }
 Write-Host "  [PASS] gat explain E0002 verified" -ForegroundColor Green
+
+$lintOut = (& .\bin\gat.exe lint examples\test_features.gat | Out-String)
+if (-not $lintOut.Contains("[gat lint]")) {
+    Write-Host "  [FAIL] gat lint CLI verification failed" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [PASS] gat lint CLI verified" -ForegroundColor Green
 
 # 6. Language Server (LSP) Verification
 Write-Host "`n[6/7] Running Language Server (LSP) Tests..." -ForegroundColor Cyan

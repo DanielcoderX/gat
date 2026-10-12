@@ -1,0 +1,26 @@
+import "std/event.gat";
+
+fn main() -> i64 {
+    print("=== Gat Asynchronous Event Loop Test ===\n");
+
+    let loop = event_loop_new();
+
+    let t1 = event_add_timer(loop, 10);
+    let t2 = event_add_timer(loop, 20);
+    let r1 = event_add_read(loop, 100);
+
+    print("Registered timer 1 ID: ", t1, "\n");
+    print("Registered timer 2 ID: ", t2, "\n");
+    print("Registered read probe ID: ", r1, "\n");
+
+    let total = event_loop_run(loop);
+    print("Total events dispatched by loop: ", total, "\n");
+
+    if total != 3 {
+        print("FAIL: Expected 3 events, got ", total, "\n");
+        return 1;
+    }
+
+    print("All event loop tests passed successfully!\n");
+    return 0;
+}

@@ -19,6 +19,7 @@ import "src/pe.gat";
 import "src/elf.gat";
 import "src/macho.gat";
 import "src/explain.gat";
+import "src/lint.gat";
 
 import "std/str.gat";
 import "std/fs.gat";
@@ -110,6 +111,7 @@ fn print_usage() {
     print("  build <file.gat> [-o <out>] [--target=macos-arm64|linux|linux-arm64|windows] Compile source to executable\n");
     print("  run <file.gat>                   Compile and execute immediately\n");
     print("  check <file.gat>                 Fast typecheck and diagnostic check\n");
+    print("  lint <file.gat>                  Source linter & static analysis\n");
     print("  test                             Run all automated test suites\n");
     print("  fmt <file.gat>                   Format Gat source file\n");
     print("  explain [code|list]              Explain diagnostic error codes and fixes\n");
@@ -285,6 +287,41 @@ fn run_check() -> i64 {
     return 0;
 }
 
+fn run_lint() -> i64 {
+    let src_path = get_cmd_arg(2);
+    if str_len(src_path) == 0 {
+        print("[Error] Missing source file for 'gat lint'.\n");
+        print("Usage: gat lint <source.gat>\n");
+        return 1;
+    }
+
+    let src = read_file(src_path);
+    if str_len(src) == 0 {
+        print("[Error] Failed to read source file: ", src_path, "\n");
+        return 1;
+    }
+
+    let l = lexer_new(src);
+    let p = parser_new(l);
+    let raw_prog = parse_program(p);
+    if p.had_error == 1 || raw_prog == nil {
+        return 1;
+    }
+
+    let loaded_files = new FileList {
+        path: src_path,
+        next: nil
+    };
+    let prog = resolve_imports(raw_prog, loaded_files);
+    if prog == nil {
+        return 1;
+    }
+
+    let linter = lint_program(prog);
+    lint_report(linter, src_path);
+    return 0;
+}
+
 fn run_init() -> i64 {
     let mod_name = get_cmd_arg(2);
     if str_len(mod_name) == 0 {
@@ -352,6 +389,10 @@ fn main() -> i64 {
 
     if str_eq(cmd, "check") || str_eq(cmd, "--check") || str_eq(cmd, "-c") {
         return run_check();
+    }
+
+    if str_eq(cmd, "lint") {
+        return run_lint();
     }
 
     if str_eq(cmd, "fmt") {

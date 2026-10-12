@@ -1,0 +1,482 @@
+// ============================================================================
+// std/crypto.gat - Gat Standard Library: Crypto & Hashing
+// ============================================================================
+//
+// Pure Gat implementation of Base64 encoding/decoding, bitwise helpers,
+// SHA-256 cryptographic hashing, and HMAC-SHA256 message authentication.
+
+import "std/str.gat";
+
+// ----------------------------------------------------------------------------
+// 1. Bitwise Utilities (32-bit & 64-bit emulation via arithmetic)
+// ----------------------------------------------------------------------------
+
+// 32-bit Modulo Mask (x & 0xFFFFFFFF)
+fn crypto_u32(x: i64) -> i64 {
+    let m = x % 4294967296;
+    if m < 0 {
+        m = m + 4294967296;
+    }
+    return m;
+}
+
+// Bitwise AND for 32-bit unsigned integers
+fn crypto_and32(a: i64, b: i64) -> i64 {
+    let res: i64 = 0;
+    let bit: i64 = 1;
+    let v1 = crypto_u32(a);
+    let v2 = crypto_u32(b);
+    while v1 > 0 && v2 > 0 {
+        if (v1 % 2 == 1) && (v2 % 2 == 1) {
+            res = res + bit;
+        }
+        v1 = v1 / 2;
+        v2 = v2 / 2;
+        bit = bit * 2;
+    }
+    return res;
+}
+
+// Bitwise OR for 32-bit unsigned integers
+fn crypto_or32(a: i64, b: i64) -> i64 {
+    let res: i64 = 0;
+    let bit: i64 = 1;
+    let v1 = crypto_u32(a);
+    let v2 = crypto_u32(b);
+    while v1 > 0 || v2 > 0 {
+        if (v1 % 2 == 1) || (v2 % 2 == 1) {
+            res = res + bit;
+        }
+        v1 = v1 / 2;
+        v2 = v2 / 2;
+        bit = bit * 2;
+    }
+    return res;
+}
+
+// Bitwise XOR for 32-bit unsigned integers
+fn crypto_xor32(a: i64, b: i64) -> i64 {
+    let res: i64 = 0;
+    let bit: i64 = 1;
+    let v1 = crypto_u32(a);
+    let v2 = crypto_u32(b);
+    while v1 > 0 || v2 > 0 {
+        let b1 = v1 % 2;
+        let b2 = v2 % 2;
+        if (b1 + b2) == 1 {
+            res = res + bit;
+        }
+        v1 = v1 / 2;
+        v2 = v2 / 2;
+        bit = bit * 2;
+    }
+    return res;
+}
+
+// Bitwise NOT for 32-bit unsigned integers (~x & 0xFFFFFFFF)
+fn crypto_not32(x: i64) -> i64 {
+    return 4294967295 - crypto_u32(x);
+}
+
+// Right shift 32-bit
+fn crypto_shr32(x: i64, n: i64) -> i64 {
+    let v = crypto_u32(x);
+    let i: i64 = 0;
+    while i < n {
+        v = v / 2;
+        i = i + 1;
+    }
+    return v;
+}
+
+// Left shift 32-bit
+fn crypto_shl32(x: i64, n: i64) -> i64 {
+    let v = crypto_u32(x);
+    let i: i64 = 0;
+    while i < n {
+        v = (v * 2) % 4294967296;
+        i = i + 1;
+    }
+    return v;
+}
+
+// Right rotate 32-bit (ROTR(x, n))
+fn crypto_rotr32(x: i64, n: i64) -> i64 {
+    let v = crypto_u32(x);
+    let r1 = crypto_shr32(v, n);
+    let r2 = crypto_shl32(v, 32 - n);
+    return crypto_or32(r1, r2);
+}
+
+// Hex digit char to integer (0..15)
+fn crypto_hex_to_int(ch: i64) -> i64 {
+    if ch >= 48 && ch <= 57 { return ch - 48; }       // '0'-'9'
+    if ch >= 97 && ch <= 102 { return ch - 97 + 10; } // 'a'-'f'
+    if ch >= 65 && ch <= 70 { return ch - 65 + 10; }  // 'A'-'F'
+    return 0;
+}
+
+// Integer to hex char
+fn crypto_int_to_hex_char(nibble: i64) -> i64 {
+    let n = nibble % 16;
+    if n < 10 { return 48 + n; }
+    return 97 + (n - 10);
+}
+
+// ----------------------------------------------------------------------------
+// 2. Base64 Encoding & Decoding
+// ----------------------------------------------------------------------------
+
+fn base64_table_char(idx: i64) -> i64 {
+    let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    return str_char(chars, idx);
+}
+
+fn base64_char_to_val(ch: i64) -> i64 {
+    if ch >= 65 && ch <= 90 { return ch - 65; }        // 'A'-'Z': 0-25
+    if ch >= 97 && ch <= 122 { return ch - 97 + 26; }  // 'a'-'z': 26-51
+    if ch >= 48 && ch <= 57 { return ch - 48 + 52; }   // '0'-'9': 52-61
+    if ch == 43 { return 62; }                         // '+'
+    if ch == 47 { return 63; }                         // '/'
+    return 0 - 1;
+}
+
+fn base64_encode(input: string) -> string {
+    if input == nil { return ""; }
+    let len = str_len(input);
+    if len == 0 { return ""; }
+
+    let sb = sb_new(len * 2);
+    let i: i64 = 0;
+    while i < len {
+        let b0 = str_char(input, i);
+        let b1: i64 = 0;
+        let b2: i64 = 0;
+        let rem = len - i;
+
+        if rem > 1 { b1 = str_char(input, i + 1); }
+        if rem > 2 { b2 = str_char(input, i + 2); }
+
+        let n = (b0 * 65536) + (b1 * 256) + b2;
+
+        let i0 = (n / 262144) % 64;
+        let i1 = (n / 4096) % 64;
+        let i2 = (n / 64) % 64;
+        let i3 = n % 64;
+
+        sb_append_char(sb, base64_table_char(i0));
+        sb_append_char(sb, base64_table_char(i1));
+
+        if rem == 1 {
+            sb_append_char(sb, 61); // '='
+            sb_append_char(sb, 61); // '='
+        } else if rem == 2 {
+            sb_append_char(sb, base64_table_char(i2));
+            sb_append_char(sb, 61); // '='
+        } else {
+            sb_append_char(sb, base64_table_char(i2));
+            sb_append_char(sb, base64_table_char(i3));
+        }
+
+        i = i + 3;
+    }
+    return sb_to_string(sb);
+}
+
+fn base64_decode(input: string) -> string {
+    if input == nil { return ""; }
+    let len = str_len(input);
+    if len == 0 { return ""; }
+
+    let sb = sb_new(len);
+    let i: i64 = 0;
+    while i + 3 < len {
+        let c0 = str_char(input, i);
+        let c1 = str_char(input, i + 1);
+        let c2 = str_char(input, i + 2);
+        let c3 = str_char(input, i + 3);
+
+        let v0 = base64_char_to_val(c0);
+        let v1 = base64_char_to_val(c1);
+        let v2 = base64_char_to_val(c2);
+        let v3 = base64_char_to_val(c3);
+
+        if v0 >= 0 && v1 >= 0 {
+            let b0 = (v0 * 4) + (v1 / 16);
+            sb_append_char(sb, b0);
+
+            if c2 != 61 && v2 >= 0 { // not '='
+                let b1 = ((v1 % 16) * 16) + (v2 / 4);
+                sb_append_char(sb, b1);
+
+                if c3 != 61 && v3 >= 0 { // not '='
+                    let b2 = ((v2 % 4) * 64) + v3;
+                    sb_append_char(sb, b2);
+                }
+            }
+        }
+        i = i + 4;
+    }
+    return sb_to_string(sb);
+}
+
+// ----------------------------------------------------------------------------
+// 3. SHA-256 Cryptographic Hash
+// ----------------------------------------------------------------------------
+
+// Constants K for SHA-256
+fn sha256_k(idx: i64) -> i64 {
+    if idx == 0 { return 1116352408; } if idx == 1 { return 1899447441; } if idx == 2 { return 3049323471; } if idx == 3 { return 3921009573; }
+    if idx == 4 { return 961987163; } if idx == 5 { return 1508970993; } if idx == 6 { return 2453635748; } if idx == 7 { return 2870763221; }
+    if idx == 8 { return 3624381080; } if idx == 9 { return 310598401; } if idx == 10 { return 607225278; } if idx == 11 { return 1426881987; }
+    if idx == 12 { return 1925078388; } if idx == 13 { return 2162078206; } if idx == 14 { return 2614888103; } if idx == 15 { return 3248222580; }
+    if idx == 16 { return 3835390401; } if idx == 17 { return 4022224774; } if idx == 18 { return 264347078; } if idx == 19 { return 604807628; }
+    if idx == 20 { return 770255983; } if idx == 21 { return 1249150122; } if idx == 22 { return 1555081692; } if idx == 23 { return 1996064986; }
+    if idx == 24 { return 2554220882; } if idx == 25 { return 2821834349; } if idx == 26 { return 2952996808; } if idx == 27 { return 3210313671; }
+    if idx == 28 { return 3336571891; } if idx == 29 { return 3584528711; } if idx == 30 { return 113926993; } if idx == 31 { return 338241895; }
+    if idx == 32 { return 666307205; } if idx == 33 { return 773529912; } if idx == 34 { return 1294757372; } if idx == 35 { return 1396182291; }
+    if idx == 36 { return 1695183700; } if idx == 37 { return 1986661051; } if idx == 38 { return 2177026350; } if idx == 39 { return 2456956037; }
+    if idx == 40 { return 2730485921; } if idx == 41 { return 2820302411; } if idx == 42 { return 3259730800; } if idx == 43 { return 3345764771; }
+    if idx == 44 { return 3516065817; } if idx == 45 { return 3600352804; } if idx == 46 { return 4094571909; } if idx == 47 { return 275423344; }
+    if idx == 48 { return 430227734; } if idx == 49 { return 506948616; } if idx == 50 { return 659060556; } if idx == 51 { return 883997877; }
+    if idx == 52 { return 958139571; } if idx == 53 { return 1322822218; } if idx == 54 { return 1537002063; } if idx == 55 { return 1747873779; }
+    if idx == 56 { return 1955562222; } if idx == 57 { return 2024104815; } if idx == 58 { return 2227730452; } if idx == 59 { return 2361852424; }
+    if idx == 60 { return 2428436474; } if idx == 61 { return 2756734187; } if idx == 62 { return 3204031479; } if idx == 63 { return 3329325298; }
+    return 0;
+}
+
+// SHA-256 round helper functions
+fn sha256_ch(x: i64, y: i64, z: i64) -> i64 {
+    return crypto_xor32(crypto_and32(x, y), crypto_and32(crypto_not32(x), z));
+}
+
+fn sha256_maj(x: i64, y: i64, z: i64) -> i64 {
+    return crypto_xor32(crypto_xor32(crypto_and32(x, y), crypto_and32(x, z)), crypto_and32(y, z));
+}
+
+fn sha256_ep0(x: i64) -> i64 {
+    return crypto_xor32(crypto_xor32(crypto_rotr32(x, 2), crypto_rotr32(x, 13)), crypto_rotr32(x, 22));
+}
+
+fn sha256_ep1(x: i64) -> i64 {
+    return crypto_xor32(crypto_xor32(crypto_rotr32(x, 6), crypto_rotr32(x, 11)), crypto_rotr32(x, 25));
+}
+
+fn sha256_sig0(x: i64) -> i64 {
+    return crypto_xor32(crypto_xor32(crypto_rotr32(x, 7), crypto_rotr32(x, 18)), crypto_shr32(x, 3));
+}
+
+fn sha256_sig1(x: i64) -> i64 {
+    return crypto_xor32(crypto_xor32(crypto_rotr32(x, 17), crypto_rotr32(x, 19)), crypto_shr32(x, 10));
+}
+
+// Compute SHA-256 hash returning a 64-character lowercase hex string
+fn sha256_hex(data: string) -> string {
+    let msg_len: i64 = 0;
+    if data != nil { msg_len = str_len(data); }
+
+    // Padding calculation: msg_len + 1 byte (0x80) + padding + 8 bytes length = multiple of 64
+    let pad_len = 64 - ((msg_len + 9) % 64);
+    if pad_len == 64 { pad_len = 0; }
+    let total_len = msg_len + 1 + pad_len + 8;
+
+    let buf: raw i8 = alloc_mem(total_len + 8);
+    let i: i64 = 0;
+    while i < msg_len {
+        buf[i] = str_char(data, i);
+        i = i + 1;
+    }
+    buf[msg_len] = 128; // 0x80
+    i = msg_len + 1;
+    while i < msg_len + 1 + pad_len {
+        buf[i] = 0;
+        i = i + 1;
+    }
+
+    // Append 64-bit bit length in big-endian
+    let bit_len = msg_len * 8;
+    buf[total_len - 8] = 0;
+    buf[total_len - 7] = 0;
+    buf[total_len - 6] = 0;
+    buf[total_len - 5] = 0;
+    buf[total_len - 4] = (bit_len / 16777216) % 256;
+    buf[total_len - 3] = (bit_len / 65536) % 256;
+    buf[total_len - 2] = (bit_len / 256) % 256;
+    buf[total_len - 1] = bit_len % 256;
+
+    // Initial hash values
+    let h0: i64 = 1779033703;
+    let h1: i64 = 3144134277;
+    let h2: i64 = 1013904242;
+    let h3: i64 = 2773480762;
+    let h4: i64 = 1359893119;
+    let h5: i64 = 2600822924;
+    let h6: i64 = 528734635;
+    let h7: i64 = 1541459225;
+
+    let w: raw i64 = alloc_mem(64 * 8);
+
+    let chunk: i64 = 0;
+    while chunk < total_len {
+        // Prepare message schedule W[0..15]
+        let t: i64 = 0;
+        while t < 16 {
+            let offset = chunk + (t * 4);
+            let b0 = buf[offset] % 256;
+            if b0 < 0 { b0 = b0 + 256; }
+            let b1 = buf[offset + 1] % 256;
+            if b1 < 0 { b1 = b1 + 256; }
+            let b2 = buf[offset + 2] % 256;
+            if b2 < 0 { b2 = b2 + 256; }
+            let b3 = buf[offset + 3] % 256;
+            if b3 < 0 { b3 = b3 + 256; }
+            w[t] = (b0 * 16777216) + (b1 * 65536) + (b2 * 256) + b3;
+            t = t + 1;
+        }
+        // Extend to W[16..63]
+        while t < 64 {
+            let s0 = sha256_sig0(w[t - 15]);
+            let s1 = sha256_sig1(w[t - 2]);
+            w[t] = crypto_u32(w[t - 16] + s0 + w[t - 7] + s1);
+            t = t + 1;
+        }
+
+        let a = h0;
+        let b = h1;
+        let c = h2;
+        let d = h3;
+        let e = h4;
+        let f = h5;
+        let g = h6;
+        let h = h7;
+
+        t = 0;
+        while t < 64 {
+            let t1 = crypto_u32(h + sha256_ep1(e) + sha256_ch(e, f, g) + sha256_k(t) + w[t]);
+            let t2 = crypto_u32(sha256_ep0(a) + sha256_maj(a, b, c));
+            h = g;
+            g = f;
+            f = e;
+            e = crypto_u32(d + t1);
+            d = c;
+            c = b;
+            b = a;
+            a = crypto_u32(t1 + t2);
+            t = t + 1;
+        }
+
+        h0 = crypto_u32(h0 + a);
+        h1 = crypto_u32(h1 + b);
+        h2 = crypto_u32(h2 + c);
+        h3 = crypto_u32(h3 + d);
+        h4 = crypto_u32(h4 + e);
+        h5 = crypto_u32(h5 + f);
+        h6 = crypto_u32(h6 + g);
+        h7 = crypto_u32(h7 + h);
+
+        chunk = chunk + 64;
+    }
+
+    free_mem(buf);
+    free_mem(w);
+
+    // Format 8 32-bit words into 64 hex characters
+    let out_buf: raw i8 = alloc_mem(65);
+    let hash_words: raw i64 = alloc_mem(8 * 8);
+    hash_words[0] = h0; hash_words[1] = h1; hash_words[2] = h2; hash_words[3] = h3;
+    hash_words[4] = h4; hash_words[5] = h5; hash_words[6] = h6; hash_words[7] = h7;
+
+    let w_idx: i64 = 0;
+    let out_pos: i64 = 0;
+    while w_idx < 8 {
+        let val = hash_words[w_idx];
+        let shift: i64 = 28;
+        while shift >= 0 {
+            let nibble = crypto_shr32(val, shift) % 16;
+            out_buf[out_pos] = crypto_int_to_hex_char(nibble);
+            out_pos = out_pos + 1;
+            shift = shift - 4;
+        }
+        w_idx = w_idx + 1;
+    }
+    out_buf[64] = 0;
+    free_mem(hash_words);
+
+    return out_buf;
+}
+
+// ----------------------------------------------------------------------------
+// 4. HMAC-SHA256 (Hash-based Message Authentication Code)
+// ----------------------------------------------------------------------------
+
+fn hmac_sha256_hex(key: string, message: string) -> string {
+    let key_len = str_len(key);
+    let k_buf: raw i8 = alloc_mem(64);
+
+    let i: i64 = 0;
+    while i < 64 {
+        k_buf[i] = 0;
+        i = i + 1;
+    }
+
+    if key_len > 64 {
+        // Hash the key first if longer than block size
+        let k_hash = sha256_hex(key);
+        let h_idx: i64 = 0;
+        while h_idx < 32 {
+            let hi = crypto_hex_to_int(str_char(k_hash, h_idx * 2));
+            let lo = crypto_hex_to_int(str_char(k_hash, h_idx * 2 + 1));
+            k_buf[h_idx] = (hi * 16) + lo;
+            h_idx = h_idx + 1;
+        }
+    } else {
+        i = 0;
+        while i < key_len {
+            k_buf[i] = str_char(key, i);
+            i = i + 1;
+        }
+    }
+
+    // Prepare inner and outer padded keys
+    let ipad: raw i8 = alloc_mem(64 + str_len(message) + 1);
+    let opad: raw i8 = alloc_mem(64 + 32 + 1);
+
+    i = 0;
+    while i < 64 {
+        let kb = k_buf[i] % 256;
+        if kb < 0 { kb = kb + 256; }
+        ipad[i] = crypto_xor32(kb, 54);  // 0x36
+        opad[i] = crypto_xor32(kb, 92);  // 0x5C
+        i = i + 1;
+    }
+
+    // Append message to ipad
+    let msg_len = str_len(message);
+    i = 0;
+    while i < msg_len {
+        ipad[64 + i] = str_char(message, i);
+        i = i + 1;
+    }
+    ipad[64 + msg_len] = 0;
+
+    // inner_hash = sha256(ipad || message)
+    let inner_hash = sha256_hex(ipad);
+
+    // Append raw 32 bytes of inner_hash to opad
+    i = 0;
+    while i < 32 {
+        let hi = crypto_hex_to_int(str_char(inner_hash, i * 2));
+        let lo = crypto_hex_to_int(str_char(inner_hash, i * 2 + 1));
+        opad[64 + i] = (hi * 16) + lo;
+        i = i + 1;
+    }
+    opad[64 + 32] = 0;
+
+    let final_hmac = sha256_hex(opad);
+
+    free_mem(k_buf);
+    free_mem(ipad);
+    free_mem(opad);
+
+    return final_hmac;
+}

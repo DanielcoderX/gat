@@ -188,19 +188,139 @@ fn opt_arc_elide(fn_obj: IRFunc) {
 }
 
 // ----------------------------------------------------------------------------
-// 4. Function & Program Optimization Pipeline
+// 4. Constant Branch Folding Pass
+// ----------------------------------------------------------------------------
+
+fn opt_branch_fold(fn_obj: IRFunc) {
+    let size = (fn_obj.max_local + 64) * 8;
+    let is_const: raw i64 = alloc_mem(size);
+    let const_val: raw i64 = alloc_mem(size);
+
+    let i: i64 = 0;
+    while i < fn_obj.max_local + 64 {
+        is_const[i] = 0;
+        const_val[i] = 0;
+        i = i + 1;
+    }
+
+    let inst = fn_obj.inst_head;
+    while inst != nil {
+        if inst.op == IR_OP_LABEL {
+            // Invalidate constants on label entry
+            let j: i64 = 0;
+            while j < fn_obj.max_local + 64 {
+                is_const[j] = 0;
+                const_val[j] = 0;
+                j = j + 1;
+            }
+        } else if inst.op == IR_OP_CONST_INT || inst.op == IR_OP_CONST_BOOL {
+            if inst.dest > 0 && inst.dest < fn_obj.max_local + 64 {
+                is_const[inst.dest] = 1;
+                const_val[inst.dest] = inst.int_val;
+            }
+        } else if inst.op == IR_OP_BRANCH {
+            let cond_reg = inst.src1;
+            if cond_reg > 0 && cond_reg < fn_obj.max_local + 64 {
+                if is_const[cond_reg] == 1 {
+                    let v = const_val[cond_reg];
+                    if v != 0 {
+                        // Condition always TRUE: branch is NOT taken (jz doesn't jump). Turn into NOP.
+                        inst.op = 0;
+                        inst.src1 = 0;
+                        inst.label = "";
+                    } else {
+                        // Condition always FALSE: branch is always taken. Turn into unconditional JUMP.
+                        inst.op = IR_OP_JUMP;
+                        inst.src1 = 0;
+                    }
+                }
+            }
+        }
+        inst = inst.next;
+    }
+
+    free_mem(is_const);
+    free_mem(const_val);
+}
+
+// ----------------------------------------------------------------------------
+// 5. Leaf Function Inlining Pass
+// ----------------------------------------------------------------------------
+
+// Detect if a function is a small leaf function returning a constant
+fn opt_find_leaf_const_return(ir_ctx: IRContext, name: string) -> i64 {
+    let fn_cur = ir_ctx.funcs_head;
+    while fn_cur != nil {
+        if str_eq(fn_cur.name, name) {
+            // Count instructions
+            let inst_count: i64 = 0;
+            let ret_val: i64 = 0;
+            let has_const_ret: i64 = 0;
+            let has_call: i64 = 0;
+
+            let inst = fn_cur.inst_head;
+            while inst != nil {
+                if inst.op != 0 {
+                    inst_count = inst_count + 1;
+                    if inst.op == IR_OP_CALL || inst.op == IR_OP_CALL_INDIRECT {
+                        has_call = 1;
+                    } else if inst.op == IR_OP_CONST_INT && inst.dest == 1 {
+                        ret_val = inst.int_val;
+                        has_const_ret = 1;
+                    }
+                }
+                inst = inst.next;
+            }
+
+            if has_call == 0 && inst_count <= 4 && has_const_ret == 1 {
+                return ret_val;
+            }
+            return 0 - 999999999;
+        }
+        fn_cur = fn_cur.next;
+    }
+    return 0 - 999999999;
+}
+
+fn opt_inline_calls(ir_ctx: IRContext) {
+    let fn_cur = ir_ctx.funcs_head;
+    while fn_cur != nil {
+        let inst = fn_cur.inst_head;
+        while inst != nil {
+            if inst.op == IR_OP_CALL && str_len(inst.str_val) > 0 {
+                let const_ret = opt_find_leaf_const_return(ir_ctx, inst.str_val);
+                if const_ret != (0 - 999999999) && inst.arg_count == 0 {
+                    // Inline directly as constant load
+                    inst.op = IR_OP_CONST_INT;
+                    inst.int_val = const_ret;
+                    inst.src1 = 0;
+                    inst.str_val = "";
+                    inst.arg_count = 0;
+                }
+            }
+            inst = inst.next;
+        }
+        fn_cur = fn_cur.next;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 6. Function & Program Optimization Pipeline
 // ----------------------------------------------------------------------------
 
 fn opt_optimize_function(fn_obj: IRFunc) {
     opt_constant_fold(fn_obj);
+    opt_branch_fold(fn_obj);
     opt_dead_code_eliminate(fn_obj);
     opt_arc_elide(fn_obj);
 }
 
 fn opt_optimize_program(ir_ctx: IRContext) {
+    opt_inline_calls(ir_ctx);
     let fn_cur = ir_ctx.funcs_head;
     while fn_cur != nil {
         opt_optimize_function(fn_cur);
         fn_cur = fn_cur.next;
     }
 }
+
