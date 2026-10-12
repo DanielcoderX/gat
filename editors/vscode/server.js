@@ -385,7 +385,7 @@ function handleMessage(msg) {
       },
       serverInfo: {
         name: 'gat-lsp',
-        version: '1.0.0'
+        version: '1.1.0'
       }
     });
     return;

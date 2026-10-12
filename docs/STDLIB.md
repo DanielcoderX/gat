@@ -23,6 +23,8 @@ Comprehensive documentation of all built-in modules in the Gat Standard Library.
 8. [`std/net.gat` - Sockets & TCP Networking](#8-stdnetgat---sockets--tcp-networking)
 9. [`std/json.gat` - JSON Parser, Serializer & Data Types](#9-stdjsongat---json-parser-serializer--data-types)
 10. [`std/http.gat` - HTTP 1.1 Client, Server & JSON Router](#10-stdhttpgat---http-11-client-server--json-router)
+11. [`std/crypto.gat` - Cryptography, Hashing & Base64](#11-stdcryptogat---cryptography-hashing--base64)
+12. [`std/event.gat` - Asynchronous Event Loop & Polling](#12-stdeventgat---asynchronous-event-loop--polling)
 
 ---
 
@@ -561,3 +563,51 @@ fn main() -> i64 {
 * `http_server_handle_one(server: HttpServer) -> bool` - Processes a single incoming connection synchronously.
 * `http_server_handle_one_concurrent(server: HttpServer, active_tracker: raw i64, max_concurrent: i64) -> bool` - Accepts a connection and delegates handling to a background thread via raw socket fd handoff. Throttles at `max_concurrent` active connections.
 * `http_server_stop(server: HttpServer)` - Shuts down listener.
+ 
+---
+ 
+## 11. `std/crypto.gat` - Cryptography, Hashing & Base64
+ 
+Import: `import "std/crypto.gat";`
+ 
+### Base64 Encoding & Decoding
+ 
+```gat
+import "std/crypto.gat";
+
+let plain = "Hello, Gat!";
+let encoded = base64_encode(plain); // "SGVsbG8sIEdhdCE="
+let decoded = base64_decode(encoded); // "Hello, Gat!"
+```
+ 
+* `base64_encode(input: string) -> string` - Encodes input string to standard Base64 representation.
+* `base64_decode(input: string) -> string` - Decodes valid Base64 string back to plain text.
+ 
+### Cryptographic Hashing
+ 
+* `sha256_hex(data: string) -> string` - Computes SHA-256 digest returning a 64-character lowercase hex string.
+* `hmac_sha256_hex(key: string, message: string) -> string` - Computes HMAC-SHA256 authenticated message hash.
+ 
+---
+ 
+## 12. `std/event.gat` - Asynchronous Event Loop & Polling
+ 
+Import: `import "std/event.gat";`
+ 
+Cross-platform single-threaded event loop engine for asynchronous task scheduling, timers, and non-blocking I/O readiness polling.
+ 
+```gat
+import "std/event.gat";
+
+let loop = event_loop_new();
+let timer_id = event_add_timer(loop, 50); // Fire after 50ms
+let total = event_loop_run(loop);
+```
+ 
+* `event_loop_new() -> EventLoop` - Allocates and initializes a new event loop.
+* `event_add_timer(loop: EventLoop, delay_ms: i64) -> i64` - Schedules a timer event to fire after `delay_ms` milliseconds.
+* `event_add_read(loop: EventLoop, fd: i64) -> i64` - Registers socket descriptor for non-blocking read readiness probing.
+* `event_loop_step(loop: EventLoop) -> i64` - Advances loop by one tick and returns number of events handled.
+* `event_loop_run(loop: EventLoop) -> i64` - Drives event loop until all pending tasks have completed.
+* `event_loop_stop(loop: EventLoop)` - Stops event loop execution.
+

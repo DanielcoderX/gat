@@ -8,7 +8,7 @@ permalink: /DIAGNOSTICS.html
 
 # Gat Compiler Diagnostics & Error Catalog
 
-**Version:** 1.0.0  
+**Version:** 1.1.0  
 **Tooling:** `gatc --explain <code|list>` / `gat explain <code|list>`  
 
 This reference catalog documents all standard diagnostic error codes emitted by the `gat` parser and typechecker. Each entry explains the invariant being violated, the compiler's rationale, and practical before/after code examples.
