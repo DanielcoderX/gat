@@ -15,17 +15,23 @@ fn macho_find_str_sym_idx(ctx: IRContext, label: string) -> i64 {
     return 0;
 }
 
-fn bb_write_fixed_str_16(buf: ByteBuffer, s: string) {
+fn bb_write_fixed_str(buf: ByteBuffer, s: string, total_len: i64) {
     let slen = str_len(s);
     bb_write_str(buf, s);
-    let rem = 16 - slen;
-    while rem > 0 {
-        bb_write_u8(buf, 0);
-        rem = rem - 1;
+    let rem = total_len - slen;
+    if rem > 0 {
+        bb_write_zeros(buf, rem);
     }
 }
 
-fn macho_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool {
+fn bb_write_fixed_str_16(buf: ByteBuffer, s: string) {
+    bb_write_fixed_str(buf, s, 16);
+}
+
+// ----------------------------------------------------------------------------
+// Mach-O Object Generator (MH_OBJECT) for *.o outputs
+// ----------------------------------------------------------------------------
+fn macho_build_object(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool {
     let out_buf = bb_new(16384);
     let rdata = bb_new(4096);
 
@@ -185,11 +191,8 @@ fn macho_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> b
                 sym_idx = macho_find_str_sym_idx(ir_ctx, rel_data.sym);
             }
 
-            // Mach-O ARM64 relocations: PAGEOFF12 at rel.offset + 4, PAGE21 at rel.offset
-            // 1275068416 = (4 << 28) | (1 << 27) | (2 << 25)
             bb_write_u32(reloc_buf, rel_data.offset + 4);
             bb_write_u32(reloc_buf, 1275068416 + sym_idx);
-            // 1023410176 = (3 << 28) | (1 << 27) | (2 << 25) | (1 << 24)
             bb_write_u32(reloc_buf, rel_data.offset);
             bb_write_u32(reloc_buf, 1023410176 + sym_idx);
         }
@@ -376,45 +379,387 @@ fn macho_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> b
 
     bb_write_bytes(out_buf, strtab.data, strtab.size);
 
-    // Determine output file path
-    let is_obj_only = false;
-    let obj_path = out_path;
-    let path_len = str_len(out_path);
-    if path_len >= 2 && str_char(out_path, path_len - 2) == 46 && str_char(out_path, path_len - 1) == 111 {
-        // ends with ".o"
-        is_obj_only = true;
-    } else {
-        obj_path = str_concat(out_path, ".o");
+    print("[macho] obj_path: ", out_path, " size: ", out_buf.size, "\n");
+    let written = write_file(out_path, out_buf.data, out_buf.size);
+    print("[macho] written: ", written, "\n");
+    return written > 0;
+}
+
+// ----------------------------------------------------------------------------
+// Minimal Mach-O 64-bit Direct Executable Linker for Darwin ARM64 (MH_EXECUTE)
+// ----------------------------------------------------------------------------
+fn macho_build_native_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool {
+    let out_buf = bb_new(32768);
+    let rdata = bb_new(4096);
+
+    // 1. Build .rdata payload (string constants & static globals)
+    let rdata_argc_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_argc
+
+    let rdata_argv_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_argv
+
+    let rdata_net_state_off = rdata.size;
+    bb_write_u64(rdata, 0); // _gat_net_state
+
+    let rdata_str_true_off = rdata.size;
+    bb_write_str(rdata, "true"); bb_write_u8(rdata, 0);
+
+    let rdata_str_false_off = rdata.size;
+    bb_write_str(rdata, "false"); bb_write_u8(rdata, 0);
+
+    let rdata_str_empty_off = rdata.size;
+    bb_write_str(rdata, ""); bb_write_u8(rdata, 0);
+
+    let sc = ir_ctx.strings_head;
+    while sc != nil {
+        sc.rdata_offset = rdata.size;
+        bb_write_str(rdata, sc.val);
+        bb_write_u8(rdata, 0);
+        sc = sc.next;
+    }
+    bb_align_up(rdata, 8);
+
+    // 2. Layout constants (macOS ARM64 16KB pages)
+    let page_size: i64 = 16384;
+    let text_file_off: i64 = 1024;
+    let text_vaddr: i64 = 4294967296; // 0x100000000
+    let code_vaddr: i64 = text_vaddr + text_file_off;
+
+    let code_size = cg.code.size;
+    let text_total_size = text_file_off + code_size;
+    let text_raw_size = align_val(text_total_size, page_size);
+
+    let data_vaddr: i64 = text_vaddr + text_raw_size;
+    let data_file_off: i64 = text_raw_size;
+    let rdata_size = rdata.size;
+    let data_raw_size = align_val(rdata_size, page_size);
+
+    let linkedit_vaddr: i64 = data_vaddr + data_raw_size;
+    let linkedit_file_off: i64 = data_file_off + data_raw_size;
+    let linkedit_raw_size: i64 = page_size;
+
+    // 3. Resolve all relocations in cg.code
+    let p_code: raw i8 = cg.code.data;
+    let rel = cg.relocs_head;
+    while rel != nil {
+        if rel.kind == 1 {
+            // Branch/Call relocation (B, BL, B.cond)
+            let sym_cur = cg.syms_head;
+            let target_offset: i64 = -1;
+            while sym_cur != nil {
+                if str_eq(sym_cur.name, rel.sym) {
+                    target_offset = sym_cur.offset;
+                }
+                sym_cur = sym_cur.next;
+            }
+
+            if target_offset >= 0 {
+                let from_offset = rel.offset;
+                let diff_words = (target_offset - from_offset) / 4;
+                let b0: i64 = p_code[rel.offset + 0];
+                if b0 < 0 { b0 = b0 + 256; }
+                let b3: i64 = p_code[rel.offset + 3];
+                if b3 < 0 { b3 = b3 + 256; }
+
+                if b3 == 84 { // 0x54: B.cond
+                    let cond = b0 % 16;
+                    let off19 = diff_words;
+                    if off19 < 0 { off19 = off19 + 524288; }
+                    off19 = off19 % 524288;
+                    let inst: i64 = 1409286144 + (off19 * 32) + cond;
+                    let u = inst;
+                    p_code[rel.offset + 0] = u % 256;
+                    p_code[rel.offset + 1] = (u / 256) % 256;
+                    p_code[rel.offset + 2] = (u / 65536) % 256;
+                    p_code[rel.offset + 3] = (u / 16777216) % 256;
+                } else { // B or BL
+                    let base_op = (b3 / 4) * 4;
+                    let off26 = diff_words;
+                    if off26 < 0 { off26 = off26 + 67108864; }
+                    off26 = off26 % 67108864;
+                    let inst: i64 = (base_op * 16777216) + off26;
+                    let u = inst;
+                    p_code[rel.offset + 0] = u % 256;
+                    p_code[rel.offset + 1] = (u / 256) % 256;
+                    p_code[rel.offset + 2] = (u / 65536) % 256;
+                    p_code[rel.offset + 3] = (u / 16777216) % 256;
+                }
+            }
+        } else if rel.kind == 4 {
+            // ADR function pointer
+            let sym_cur = cg.syms_head;
+            let target_offset: i64 = -1;
+            while sym_cur != nil {
+                if str_eq(sym_cur.name, rel.sym) {
+                    target_offset = sym_cur.offset;
+                }
+                sym_cur = sym_cur.next;
+            }
+
+            if target_offset >= 0 {
+                let from_offset = rel.offset;
+                let diff = target_offset - from_offset;
+                let b0: i64 = p_code[rel.offset + 0];
+                if b0 < 0 { b0 = b0 + 256; }
+                let rd = b0 % 32;
+
+                let off = diff;
+                if off < 0 { off = off + 2097152; }
+                off = off % 2097152;
+                let immlo = off % 4;
+                let immhi = (off / 4) % 524288;
+                let inst: i64 = 268435456 + (immlo * 536870912) + (immhi * 32) + rd;
+                let u = inst;
+                p_code[rel.offset + 0] = u % 256;
+                p_code[rel.offset + 1] = (u / 256) % 256;
+                p_code[rel.offset + 2] = (u / 65536) % 256;
+                p_code[rel.offset + 3] = (u / 16777216) % 256;
+            }
+        } else if rel.kind == 3 {
+            // Data symbol address via ADRP + ADD
+            let target_vaddr: i64 = 0;
+            if str_eq(rel.sym, "_gat_argc") {
+                target_vaddr = data_vaddr + rdata_argc_off;
+            } else if str_eq(rel.sym, "_gat_argv") {
+                target_vaddr = data_vaddr + rdata_argv_off;
+            } else if str_eq(rel.sym, "_gat_net_state") {
+                target_vaddr = data_vaddr + rdata_net_state_off;
+            } else if str_eq(rel.sym, "str_true_const") {
+                target_vaddr = data_vaddr + rdata_str_true_off;
+            } else if str_eq(rel.sym, "str_false_const") {
+                target_vaddr = data_vaddr + rdata_str_false_off;
+            } else if str_eq(rel.sym, "str_empty_const") {
+                target_vaddr = data_vaddr + rdata_str_empty_off;
+            } else {
+                let sc_cur = ir_ctx.strings_head;
+                while sc_cur != nil {
+                    if str_eq(sc_cur.label, rel.sym) {
+                        target_vaddr = data_vaddr + sc_cur.rdata_offset;
+                    }
+                    sc_cur = sc_cur.next;
+                }
+                if target_vaddr == 0 {
+                    let sym_cur = cg.syms_head;
+                    while sym_cur != nil {
+                        if str_eq(sym_cur.name, rel.sym) {
+                            target_vaddr = code_vaddr + sym_cur.offset;
+                        }
+                        sym_cur = sym_cur.next;
+                    }
+                }
+            }
+
+            let pc = code_vaddr + rel.offset;
+            let pc_page = pc / 4096;
+            let target_page = target_vaddr / 4096;
+            let page_diff = target_page - pc_page;
+            if page_diff < 0 { page_diff = page_diff + 2097152; }
+            page_diff = page_diff % 2097152;
+            let immlo = page_diff % 4;
+            let immhi = (page_diff / 4) % 524288;
+
+            let orig_b0: i64 = p_code[rel.offset + 0];
+            if orig_b0 < 0 { orig_b0 = orig_b0 + 256; }
+            let rd = orig_b0 % 32;
+
+            // ADRP Rd, imm21
+            let adrp_inst: i64 = 2415919104 + (immlo * 536870912) + (immhi * 32) + rd;
+            let u0 = adrp_inst;
+            p_code[rel.offset + 0] = u0 % 256;
+            p_code[rel.offset + 1] = (u0 / 256) % 256;
+            p_code[rel.offset + 2] = (u0 / 65536) % 256;
+            p_code[rel.offset + 3] = (u0 / 16777216) % 256;
+
+            // ADD Rd, Rd, #(target_vaddr % 4096)
+            let imm12 = target_vaddr % 4096;
+            let add_inst: i64 = 2432696320 + (imm12 * 1024) + (rd * 32) + rd;
+            let u1 = add_inst;
+            p_code[rel.offset + 4] = u1 % 256;
+            p_code[rel.offset + 5] = (u1 / 256) % 256;
+            p_code[rel.offset + 6] = (u1 / 65536) % 256;
+            p_code[rel.offset + 7] = (u1 / 16777216) % 256;
+        }
+        rel = rel.next;
     }
 
-    print("[macho] obj_path: ", obj_path, " size: ", out_buf.size, "\n");
-    let written = write_file(obj_path, out_buf.data, out_buf.size);
+    // 4. Header & Load Commands
+    let header_size: i64 = 32;
+    let seg_pagezero_size: i64 = 72;
+    let seg_text_size: i64 = 72 + 80;     // 152
+    let seg_data_size: i64 = 72 + 80;     // 152
+    let seg_linkedit_size: i64 = 72;
+    let cmd_dyld_size: i64 = 32;
+    let cmd_main_size: i64 = 24;
+    let cmd_dylib_size: i64 = 56;
+    let cmd_bld_size: i64 = 24;
+    let cmd_uuid_size: i64 = 24;
+
+    let sizeofcmds: i64 = seg_pagezero_size + seg_text_size + seg_data_size + seg_linkedit_size +
+                          cmd_dyld_size + cmd_main_size + cmd_dylib_size + cmd_bld_size + cmd_uuid_size; // 608
+
+    // Write Mach-O Header (32 bytes)
+    bb_write_u32(out_buf, 4277009103); // 0xfeedfacf (MH_MAGIC_64)
+    bb_write_u32(out_buf, 16777228);   // 0x0100000c (CPU_TYPE_ARM64)
+    bb_write_u32(out_buf, 0);          // cpusubtype
+    bb_write_u32(out_buf, 2);          // filetype: MH_EXECUTE (2)
+    bb_write_u32(out_buf, 9);          // ncmds: 9
+    bb_write_u32(out_buf, sizeofcmds); // sizeofcmds: 608
+    bb_write_u32(out_buf, 2097285);    // flags: 0x00200085 (MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE)
+    bb_write_u32(out_buf, 0);          // reserved
+
+    // 1. LC_SEGMENT_64 (__PAGEZERO)
+    bb_write_u32(out_buf, 25);
+    bb_write_u32(out_buf, seg_pagezero_size);
+    bb_write_fixed_str(out_buf, "__PAGEZERO", 16);
+    bb_write_u64(out_buf, 0);          // vmaddr
+    bb_write_u64(out_buf, text_vaddr); // vmsize (0x100000000)
+    bb_write_u64(out_buf, 0);          // fileoff
+    bb_write_u64(out_buf, 0);          // filesize
+    bb_write_u32(out_buf, 0);          // maxprot
+    bb_write_u32(out_buf, 0);          // initprot
+    bb_write_u32(out_buf, 0);          // nsects
+    bb_write_u32(out_buf, 0);          // flags
+
+    // 2. LC_SEGMENT_64 (__TEXT)
+    bb_write_u32(out_buf, 25);
+    bb_write_u32(out_buf, seg_text_size);
+    bb_write_fixed_str(out_buf, "__TEXT", 16);
+    bb_write_u64(out_buf, text_vaddr);
+    bb_write_u64(out_buf, text_raw_size);
+    bb_write_u64(out_buf, 0);          // fileoff
+    bb_write_u64(out_buf, text_raw_size);
+    bb_write_u32(out_buf, 5);          // maxprot (RX)
+    bb_write_u32(out_buf, 5);          // initprot (RX)
+    bb_write_u32(out_buf, 1);          // nsects: 1
+    bb_write_u32(out_buf, 0);          // flags
+
+    // Section 1: __text
+    bb_write_fixed_str(out_buf, "__text", 16);
+    bb_write_fixed_str(out_buf, "__TEXT", 16);
+    bb_write_u64(out_buf, code_vaddr);
+    bb_write_u64(out_buf, code_size);
+    bb_write_u32(out_buf, text_file_off);
+    bb_write_u32(out_buf, 2);          // align: 2^2 = 4
+    bb_write_u32(out_buf, 0);          // reloff
+    bb_write_u32(out_buf, 0);          // nreloc
+    bb_write_u32(out_buf, 2147484672); // flags: 0x80000400 (S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS)
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+
+    // 3. LC_SEGMENT_64 (__DATA)
+    bb_write_u32(out_buf, 25);
+    bb_write_u32(out_buf, seg_data_size);
+    bb_write_fixed_str(out_buf, "__DATA", 16);
+    bb_write_u64(out_buf, data_vaddr);
+    bb_write_u64(out_buf, data_raw_size);
+    bb_write_u64(out_buf, data_file_off);
+    bb_write_u64(out_buf, data_raw_size);
+    bb_write_u32(out_buf, 3);          // maxprot (RW)
+    bb_write_u32(out_buf, 3);          // initprot (RW)
+    bb_write_u32(out_buf, 1);          // nsects: 1
+    bb_write_u32(out_buf, 0);
+
+    // Section 1: __data
+    bb_write_fixed_str(out_buf, "__data", 16);
+    bb_write_fixed_str(out_buf, "__DATA", 16);
+    bb_write_u64(out_buf, data_vaddr);
+    bb_write_u64(out_buf, rdata_size);
+    bb_write_u32(out_buf, data_file_off);
+    bb_write_u32(out_buf, 3);          // align: 2^3 = 8
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+
+    // 4. LC_SEGMENT_64 (__LINKEDIT)
+    bb_write_u32(out_buf, 25);
+    bb_write_u32(out_buf, seg_linkedit_size);
+    bb_write_fixed_str(out_buf, "__LINKEDIT", 16);
+    bb_write_u64(out_buf, linkedit_vaddr);
+    bb_write_u64(out_buf, linkedit_raw_size);
+    bb_write_u64(out_buf, linkedit_file_off);
+    bb_write_u64(out_buf, 0);          // filesize
+    bb_write_u32(out_buf, 1);          // maxprot (R)
+    bb_write_u32(out_buf, 1);          // initprot (R)
+    bb_write_u32(out_buf, 0);
+    bb_write_u32(out_buf, 0);
+
+    // 5. LC_LOAD_DYLINKER
+    bb_write_u32(out_buf, 14);         // 0x0e
+    bb_write_u32(out_buf, cmd_dyld_size);
+    bb_write_u32(out_buf, 12);         // name offset
+    bb_write_fixed_str(out_buf, "/usr/lib/dyld", 20);
+
+    // 6. LC_MAIN
+    bb_write_u32(out_buf, 2147483688); // 0x80000028
+    bb_write_u32(out_buf, cmd_main_size);
+    bb_write_u64(out_buf, text_file_off); // entryoff
+    bb_write_u64(out_buf, 0);          // stacksize
+
+    // 7. LC_LOAD_DYLIB (/usr/lib/libSystem.B.dylib)
+    bb_write_u32(out_buf, 12);         // 0x0c
+    bb_write_u32(out_buf, cmd_dylib_size);
+    bb_write_u32(out_buf, 24);         // offset
+    bb_write_u32(out_buf, 2);          // timestamp
+    bb_write_u32(out_buf, 88866816);   // current_version: 0x054c0000
+    bb_write_u32(out_buf, 65536);      // compatibility_version: 0x00010000
+    bb_write_fixed_str(out_buf, "/usr/lib/libSystem.B.dylib", 32);
+
+    // 8. LC_BUILD_VERSION
+    bb_write_u32(out_buf, 50);         // 0x32
+    bb_write_u32(out_buf, cmd_bld_size);
+    bb_write_u32(out_buf, 1);          // platform: 1 (macOS)
+    bb_write_u32(out_buf, 917504);     // minos: 14.0.0
+    bb_write_u32(out_buf, 917504);     // sdk: 14.0.0
+    bb_write_u32(out_buf, 0);          // ntools: 0
+
+    // 9. LC_UUID
+    bb_write_u32(out_buf, 27);         // 0x1b
+    bb_write_u32(out_buf, cmd_uuid_size);
+    bb_write_u64(out_buf, 80846443212345678);
+    bb_write_u64(out_buf, 91827364512345678);
+
+    // 5. Payloads & Alignment
+    bb_write_zeros(out_buf, text_file_off - out_buf.size);
+    bb_write_bytes(out_buf, cg.code.data, cg.code.size);
+
+    bb_write_zeros(out_buf, data_file_off - out_buf.size);
+    bb_write_bytes(out_buf, rdata.data, rdata.size);
+
+    bb_write_zeros(out_buf, linkedit_file_off - out_buf.size);
+
+    print("[macho] native executable: ", out_path, " size: ", out_buf.size, "\n");
+    let written = write_file(out_path, out_buf.data, out_buf.size);
     print("[macho] written: ", written, "\n");
     if written <= 0 {
         return false;
     }
 
-    if is_obj_only {
-        return true;
-    }
+    let chmod_cmd = str_concat("chmod +x ", out_path);
+    exec_cmd(chmod_cmd);
 
-    // Link with clang to create signed executable
-    let cmd = str_concat("clang ", obj_path);
-    cmd = str_concat(cmd, " -o ");
-    cmd = str_concat(cmd, out_path);
-    let rc = exec_cmd(cmd);
+    let cs_cmd = str_concat("codesign -s - -f ", out_path);
+    let rc = exec_cmd(cs_cmd);
     if rc != 0 {
-        let host_cmd = str_concat("/usr/bin/clang ", obj_path);
-        host_cmd = str_concat(host_cmd, " -o ");
-        host_cmd = str_concat(host_cmd, out_path);
-        rc = exec_cmd(host_cmd);
+        let host_cs = str_concat("/usr/bin/codesign -s - -f ", out_path);
+        rc = exec_cmd(host_cs);
     }
-
-    if rc == 0 {
-        delete_file(obj_path);
-        return true;
-    }
-
-    print("[Info] Mach-O object written to ", obj_path, ". Link with: clang ", obj_path, " -o ", out_path, "\n");
     return true;
 }
+
+// ----------------------------------------------------------------------------
+// Public Mach-O Emitter Entry Point
+// ----------------------------------------------------------------------------
+fn macho_build_executable(ir_ctx: IRContext, cg: CodeGen, out_path: string) -> bool {
+    let path_len = str_len(out_path);
+    if path_len >= 2 && str_char(out_path, path_len - 2) == 46 && str_char(out_path, path_len - 1) == 111 {
+        // ends with ".o"
+        return macho_build_object(ir_ctx, cg, out_path);
+    }
+    return macho_build_native_executable(ir_ctx, cg, out_path);
+}
+

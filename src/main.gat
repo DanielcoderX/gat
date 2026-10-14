@@ -69,7 +69,7 @@ fn main() -> i64 {
         if str_starts_with_prefix(tdir, "/") {
             target_backend = target_get_macos_arm64();
             if str_eq(out_path, "output.exe") {
-                out_path = "output.o";
+                out_path = "output.out";
             }
         } else {
             target_backend = target_get_windows();
