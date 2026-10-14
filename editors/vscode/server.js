@@ -16,10 +16,16 @@ let workspaceRoot = process.cwd();
 // Find gat binary path
 function findGatBinary() {
   const candidates = [
+    path.join(workspaceRoot, 'bin', 'gat'),
+    path.join(workspaceRoot, 'bin', 'gatc'),
     path.join(workspaceRoot, 'bin', 'gat.exe'),
     path.join(workspaceRoot, 'bin', 'gatc.exe'),
+    path.join(__dirname, '..', '..', 'bin', 'gat'),
+    path.join(__dirname, '..', '..', 'bin', 'gatc'),
     path.join(__dirname, '..', '..', 'bin', 'gat.exe'),
     path.join(__dirname, '..', '..', 'bin', 'gatc.exe'),
+    'gat',
+    'gatc',
     'gat.exe',
     'gatc.exe'
   ];
@@ -28,7 +34,7 @@ function findGatBinary() {
       return path.resolve(c);
     }
   }
-  return 'gat.exe';
+  return process.platform === 'win32' ? 'gat.exe' : 'gat';
 }
 
 // Convert URI to file path

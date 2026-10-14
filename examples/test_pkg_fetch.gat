@@ -50,6 +50,12 @@ fn main() -> i64 {
         return 1;
     }
 
+    let verify_ok = mod_verify_lock("gat.lock");
+    if !verify_ok {
+        print("[FAIL] gat.lock checksum verification failed\n");
+        return 1;
+    }
+
     // Clean up test files
     fs_delete_file("test_gat.mod");
     fs_delete_file("gat.lock");

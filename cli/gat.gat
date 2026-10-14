@@ -120,6 +120,7 @@ fn print_usage() {
     print("  test                             Run all automated test suites\n");
     print("  fmt <file.gat>                   Format Gat source file\n");
     print("  explain [code|list]              Explain diagnostic error codes and fixes\n");
+    print("  lsp                              Start Language Server Protocol (LSP 3.17) server\n");
     print("  version                          Show version information\n");
     print("  help                             Display this help message\n");
 }
@@ -411,6 +412,12 @@ fn main() -> i64 {
         }
         print_explain(code);
         return 0;
+    }
+
+    if str_eq(cmd, "lsp") || str_eq(cmd, "--lsp") {
+        let server_path = "editors/vscode/server.js";
+        let cmd = str_concat("node ", server_path);
+        return proc_exec(cmd);
     }
 
     print("[Error] Unknown command '", cmd, "'. Run 'gat help' for usage.\n");
