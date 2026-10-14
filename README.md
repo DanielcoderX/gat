@@ -84,9 +84,9 @@ Explore our beginner-friendly tutorial gallery in [`examples/showcase/`](example
 `gat` emits raw machine code directly without external assembler dependencies:
 
 - **macOS Apple Silicon (Mach-O ARM64)**:
-  - Emits 64-bit Mach-O relocatable object files (`MH_OBJECT`, `CPU_TYPE_ARM64`).
-  - Implements Darwin AArch64 ABI calling convention and direct syscalls via `SVC #0x80` (`mmap`, `munmap`, `write`, `open`, `close`, `lseek`, `getpid`, `socket`, `connect`, `bind`, `listen`, `accept`, `sendto`, `recvfrom`).
-  - Seamlessly links final executable via host clang/ld64.
+  - Emits 64-bit Mach-O executables (`MH_EXECUTE`) directly with native linking, or relocatable object files (`MH_OBJECT`).
+  - Implements Darwin AArch64 ABI calling convention, direct syscalls via `SVC #0x80`, and native ad-hoc code signing without requiring external `clang` or `ld64`.
+  - Zero external linker dependencies for executable production.
 
 - **Linux x86-64 & ARM64 (ELF64)**:
   - Emits static ELF64 executable (`ET_EXEC`).

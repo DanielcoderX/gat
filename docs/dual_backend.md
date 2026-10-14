@@ -28,8 +28,7 @@ gat build main.gat -o main --target=macos-arm64
     - `sys_mmap` (197) and `sys_munmap` (73)
     - `sys_write` (4), `sys_read` (3), `sys_open` (5), `sys_close` (6), `sys_lseek` (199)
     - `sys_getpid` (20)
-  - Stack management using 64-bit extended register operations conforming to Apple's 16-byte alignment requirements.
-- **Linker Integration**: The compiler driver invokes the host linker (`clang <obj.o> -o <out>`) to sign and produce executable binaries, or outputs raw `.o` files when `-o file.o` is specified.
+- **Native Linker Integration**: The compiler driver natively links standalone Mach-O executables (`MH_EXECUTE`) directly in memory with internal symbol/relocation resolution and ad-hoc code signing (`codesign`), removing external `clang`/`ld64` dependencies. Relocatable object files continue to be supported when `-o file.o` is specified.
 
 ---
 

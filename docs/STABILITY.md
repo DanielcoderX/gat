@@ -67,17 +67,13 @@ To earn this promise honestly, this document outlines the exact boundaries of wh
 | **Windows** | x86-64 | PE32+ Standalone `.exe` | Direct `kernel32.dll` / `ws2_32.dll` | Win32 Threads & Critical Sections | **Tier 1 (Stable)** |
 | **Linux** | x86-64 | Static ELF64 Executable | Zero libc direct `syscall` instructions | Direct `sys_clone` & Futex Mutexes | **Tier 1 (Stable)** |
 | **Linux ARM64** | AArch64 | Static ELF64 Executable | Zero libc direct `svc #0` instructions | **Experimental** (missing `sys_clone`) | **Tier 2 (Supported)** |
-| **macOS Apple Silicon** | ARM64 | Mach-O 64-bit Object (`.o`) | Direct Darwin `svc #0x80` syscalls linked with clang | **Experimental** (missing Darwin thread runtime) | **Tier 2 (Supported)** |
+| **macOS Apple Silicon** | ARM64 | Mach-O 64-bit Executable / Object | Direct Darwin `svc #0x80` syscalls & native linking | Darwin Thread Runtime & Mutexes | **Tier 1 (Stable)** |
 
 ### Explicit Exclusions & Backend Exceptions
 
-> [!WARNING]
-> **ARM64 Threading & Concurrency Limitation**:
-> `std/thread.gat` (`thread_spawn`, `thread_join`) and `std/sync.gat` (`Mutex`) are **only supported on Tier 1 x86-64 backends (Windows and Linux)**. The ARM64 backend (`src/codegen_arm64.gat`) does not currently emit thread spawning instructions. ARM64 concurrency is explicitly excluded from the v1.0 stability guarantee and remains **Experimental**.
-
 > [!NOTE]
-> **macOS Mach-O Direct Executable Linking**:
-> On macOS ARM64, `gatc` emits relocatable Mach-O 64-bit object files (`.o`) which are linked to final executables via host `clang` or `ld64`. Direct standalone Mach-O executable emission without external linker invocation is slated for a future minor release and is not frozen in v1.0.
+> **macOS Mach-O Direct Native Linking**:
+> On macOS ARM64, `gatc` natively links standalone Mach-O executables (`MH_EXECUTE`) directly with automatic ad-hoc code signing, eliminating any external compiler or linker requirement. Relocatable Mach-O object files (`.o`) remain fully supported for custom toolchains when requested via `-o file.o`.
 
 ---
 
